@@ -96,9 +96,25 @@ export function toLeagueShape(league: SleeperLeagueSummary): {
   };
 }
 
-function formatWarnings(league: SleeperLeagueSummary, unsupported: string[]): string[] {
+function formatWarnings(
+  league: SleeperLeagueSummary,
+  unsupported: string[],
+  rosteredCount: number,
+): string[] {
   const warnings: string[] = [];
   const s = league.settings ?? {};
+
+  // A pre-draft league has empty rosters, which makes every team identical and
+  // the finish matrix uniform. That is arithmetically correct and completely
+  // uninformative, so say so rather than letting it look like a result.
+  const expected = league.total_rosters * (league.roster_positions?.length ?? 0);
+  if (rosteredCount < expected * 0.25) {
+    warnings.push(
+      `Only ${rosteredCount} players are rostered across the league, so lineup strength is ` +
+        'near zero for everyone and the finish matrix comes out uniform. Values and replacement ' +
+        'level are still meaningful; the simulation will not be until the draft happens.',
+    );
+  }
   if (s.best_ball === 1) {
     warnings.push(
       'Best ball league: lineups are set automatically after the fact, so the optimizer already ' +
@@ -166,8 +182,12 @@ export async function loadLeagueSnapshot(leagueId: string): Promise<LeagueSnapsh
   let completedWeeks = 0;
   let scheduleSource: LeagueSnapshot['scheduleSource'] = 'generated';
 
+  // Sleeper only publishes a schedule once the season is set up. Asking for
+  // fourteen empty weeks during the offseason is fourteen wasted requests.
+  const seasonStarted = !['pre_draft', 'drafting'].includes(league.status);
+
   try {
-    const weeks = await getSchedule(leagueId, regularSeasonWeeks);
+    const weeks = seasonStarted ? await getSchedule(leagueId, regularSeasonWeeks) : [];
     const full = scheduleFromSleeper(weeks);
     const completed = completedFromSleeper(weeks);
     completedWeeks = completed.length;
@@ -212,7 +232,7 @@ export async function loadLeagueSnapshot(leagueId: string): Promise<LeagueSnapsh
     consolationBracket: !!(league as { loser_bracket_id?: string }).loser_bracket_id,
     draftRounds: settings.draft_rounds || 4,
     unsupportedSlots: [...new Set(unsupported)],
-    warnings: formatWarnings(league, unsupported),
+    warnings: formatWarnings(league, unsupported, rosteredPlayerIds.size),
     rosteredPlayerIds,
     scheduleSource,
     syncedAt: new Date(),
