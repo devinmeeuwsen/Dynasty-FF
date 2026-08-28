@@ -1,4 +1,5 @@
-import { selectPosture, useStore } from '../../state/store';
+import { useStore } from '../../state/store';
+import { usePosture } from '../usePosture';
 import { POSTURE_COPY, classify } from '../../engine/posture';
 import { percent } from '../format';
 
@@ -41,7 +42,7 @@ export function ContentionSlider({ compact = false }: { compact?: boolean }) {
   const setContention = useStore((s) => s.setContention);
   const clearOverride = useStore((s) => s.clearContentionOverride);
   const override = useStore((s) => s.contentionOverride);
-  const posture = useStore(selectPosture);
+  const posture = usePosture();
 
   const derived = posture != null && override == null;
   const copy = derived ? POSTURE_COPY[posture.posture] : POSTURE_COPY[fromWeightAlone(weight)];

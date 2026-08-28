@@ -337,7 +337,7 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   clearContentionOverride() {
     set({ contentionOverride: null });
-    const derived = selectPosture(get());
+    const derived = postureOf(get());
     if (derived) {
       set({ settings: { ...get().settings, contentionWeight: derived.weight } });
     }
@@ -537,8 +537,12 @@ export const selectUserRoster = (state: State) =>
 /**
  * Null until there is both a simulation and a team to place — simulated mode
  * has no user roster, so there is nothing to be a contender relative to.
+ *
+ * NOT for `useStore(selectPosture)`: this builds a new object each call, and a
+ * reference-compared snapshot that changes every render spins React until it
+ * throws. Components use `usePosture`, which memoises on the two stable inputs.
  */
-export function selectPosture(state: State): PostureResult | null {
+export function postureOf(state: State): PostureResult | null {
   if (!state.scenario || state.userRosterId == null) return null;
   return assessPosture(state.scenario, state.userRosterId);
 }

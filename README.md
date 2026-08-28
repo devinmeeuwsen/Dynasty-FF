@@ -199,6 +199,21 @@ one week or two (two-week rounds double the mean gap but only grow the spread
 by √2, so they favour the better team), and Sleeper's published bracket is read
 when it exists — which is only once the playoffs are seeded.
 
+## Checking it in a browser
+
+`npm test` covers the engine but cannot see the failure mode that actually
+reaches users: a store selector returning a fresh object spins React until it
+throws, which passes every unit test and then blanks the page the moment a
+league connects. That has happened once.
+
+    npm run build && npm run smoke
+
+drives the real built bundle down the full synced path — username lookup,
+league selection, the worker simulation, all six views — against a synthetic
+league served entirely from fixtures. No network, no Sleeper account. Exits
+non-zero on any page error and drops screenshots in `.smoke/`. Playwright is
+resolved at runtime rather than depended on, so it stays out of `npm install`.
+
 ## Key documents
 
 - [`DECISIONS.md`](./DECISIONS.md) — every calibration decision the spec asked to have
