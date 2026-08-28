@@ -1,14 +1,14 @@
-# Tests and a production build on every push. Deployment is handled by whichever
-# static host is connected to this repo (Cloudflare Pages, Netlify, Vercel — all
-# of which build from source themselves), so there is no deploy step here.
+# Tests and a production build for pull requests and feature branches.
 #
-# GitHub Pages is deliberately not used: it requires a paid plan on private
-# repositories, and this project needs nothing GitHub Pages offers that a free
-# static host does not.
+# Publishing lives in deploy.yml, which runs these same checks on main before
+# releasing to GitHub Pages. A host that builds from source itself (Cloudflare
+# Pages, Netlify, Vercel) can be pointed at this repo instead and needs neither
+# workflow — netlify.toml and vercel.json are set up for that.
 name: CI
 
 on:
   push:
+    branches-ignore: [main]   # main is covered by the deploy workflow
   pull_request:
   workflow_dispatch:
 

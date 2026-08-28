@@ -1,0 +1,55 @@
+# Publishes the app to GitHub Pages. Free now that the repository is public.
+#
+# Live Sleeper sync needs nothing more than this: Sleeper's API sends
+# `access-control-allow-origin: *`, so the built bundle calls it straight from
+# the visitor's browser. No backend, no proxy, no database.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running publish finish rather than cancelling it midway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # Refresh the shipped player pool so each deploy carries current players.
+      # Non-fatal: if Sleeper is unreachable the committed pool is used instead.
+      - run: npm run players:build || echo "using committed player pool"
+      - run: npm run build
+      # `enablement` creates the Pages site over the API on the first run, so no
+      # manual repository setting is needed.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
