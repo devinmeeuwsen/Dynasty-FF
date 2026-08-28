@@ -20,6 +20,7 @@ import { checkDoublyStochastic } from './season';
 import { auditOwnership, buildPickOwnership, pickKey } from './picks';
 import { evaluateScenario } from './scenario';
 import { evaluateTrade, applyTrade } from './trade';
+import { assessPosture, classify, recommendedWeight, standing } from './posture';
 import { buildHarness, transferPlayers } from './harness';
 
 const CURVE = { lambda: DEFAULT_SETTINGS.lambda, curve: DEFAULT_SETTINGS.curve } as const;
@@ -715,5 +716,130 @@ describe('applyTrade', () => {
     expect(applied.rosters[1].playerIds).toContain(p1);
     expect(applied.picks.find((p) => pickKey(p) === pickKey(pick))!.ownerRosterId).toBe(1);
     expect(applied.picks).toHaveLength(h.picks.length);
+  });
+});
+
+describe('contention posture is derived, not asked', () => {
+  const h = buildHarness({ seasons: [2027, 2028], rounds: 4, playoffTeams: 6 });
+  const scenario = evaluateScenario(h.scenario);
+
+  it('places every team on both axes and produces a usable weight', () => {
+    for (const roster of h.rosters) {
+      const p = assessPosture(scenario, roster.rosterId);
+      expect(p.contention).toBeGreaterThanOrEqual(0);
+      expect(p.contention).toBeLessThanOrEqual(1);
+      expect(p.futureStrength).toBeGreaterThanOrEqual(0);
+      expect(p.futureStrength).toBeLessThanOrEqual(1);
+      expect(p.weight).toBeGreaterThanOrEqual(0);
+      expect(p.weight).toBeLessThanOrEqual(1);
+    }
+    // The strongest and weakest teams must not land on the same posture.
+    const ranked = [...h.rosters]
+      .map((r) => assessPosture(scenario, r.rosterId))
+      .sort((a, b) => b.contention - a.contention);
+    expect(ranked[0].weight).toBeGreaterThan(ranked[ranked.length - 1].weight);
+  });
+
+  it('separates a dynasty from an all in team at identical championship odds', () => {
+    // Same contention, opposite futures: the only difference is whether the
+    // roster survives the season it is winning.
+    expect(classify(0.9, 0.9)).toBe('dynasty');
+    expect(classify(0.9, 0.1)).toBe('all_in');
+    expect(recommendedWeight(0.9, 0.9)).toBeLessThan(recommendedWeight(0.9, 0.1));
+    // Dynasty still leans win now — it is a contender, just not a mortgaging one.
+    expect(recommendedWeight(0.9, 0.9)).toBeGreaterThan(0.6);
+    expect(recommendedWeight(0.9, 0.1)).toBeGreaterThan(0.9);
+  });
+
+  it('sends a hopeless team to a rebuild and grades it on what it still owns', () => {
+    expect(classify(0.05, 0.8)).toBe('rebuilding');
+    expect(classify(0.05, 0.1)).toBe('full_rebuild');
+    expect(recommendedWeight(0.05, 0.8)).toBeLessThan(0.2);
+    expect(classify(0.5, 0.5)).toBe('contending');
+    expect(classify(0.35, 0.5)).toBe('balanced');
+  });
+
+  it('is monotone: more contention never means less win now', () => {
+    for (const future of [0, 0.25, 0.5, 0.75, 1]) {
+      let previous = -1;
+      for (const contention of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+        const w = recommendedWeight(contention, future);
+        expect(w).toBeGreaterThanOrEqual(previous);
+        previous = w;
+      }
+    }
+    // And a stronger future never means more win now.
+    for (const contention of [0, 0.5, 1]) {
+      expect(recommendedWeight(contention, 1)).toBeLessThanOrEqual(
+        recommendedWeight(contention, 0),
+      );
+    }
+  });
+
+  it('puts a league of identical teams in the middle rather than picking one', () => {
+    const flat = new Map([1, 2, 3, 4].map((id) => [id, 0.25]));
+    for (const id of [1, 2, 3, 4]) expect(standing(flat, id)).toBeCloseTo(0.5, 9);
+  });
+});
+
+describe('the regular season and the playoffs are different questions', () => {
+  const rowEntropy = (row: number[]) =>
+    -row.reduce((a, p) => a + (p > 0 ? p * Math.log(p) : 0), 0);
+
+  it('never makes the final standings sharper than the seeding that fed them', () => {
+    // The bracket adds independent noise on top of the schedule, so the final
+    // matrix can only be at least as spread out. If it ever came out sharper,
+    // the bracket would be leaking information back into the regular season.
+    for (const draftMode of ['linear', 'tiered'] as const) {
+      const h = buildHarness({ draftMode, tierAlpha: 0.35, playoffTeams: 6, weeks: 14 });
+      const s = evaluateScenario(h.scenario);
+      const mean = (m: number[][]) =>
+        m.reduce((a, row) => a + rowEntropy(row), 0) / m.length;
+      expect(mean(s.result.finish.rows)).toBeGreaterThanOrEqual(
+        mean(s.result.regularSeason.rows) - 1e-9,
+      );
+    }
+  });
+
+  it('shows a strong team reaching the bracket far more reliably than winning it', () => {
+    const h = buildHarness({ draftMode: 'tiered', tierAlpha: 0.35, playoffTeams: 6, weeks: 14 });
+    const s = evaluateScenario(h.scenario);
+    const best = [...s.result.meanPoints.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const i = s.result.regularSeason.rosterIds.indexOf(best);
+
+    const makePlayoffs = s.result.regularSeason.rows[i].slice(0, 6).reduce((a, b) => a + b, 0);
+    const title = s.result.finish.rows[i][0];
+
+    expect(makePlayoffs).toBeGreaterThan(0.9);
+    expect(title).toBeLessThan(makePlayoffs);
+    // The gap is the point of splitting the two charts: dominating a schedule
+    // is achievable, converting it into a trophy is mostly not.
+    expect(makePlayoffs - title).toBeGreaterThan(0.2);
+  });
+
+  it('lets two week playoff rounds favour the better team, as they do in reality', () => {
+    const odds = (playoffWeeksPerRound: number) => {
+      const h = buildHarness({ draftMode: 'tiered', tierAlpha: 0.35, playoffTeams: 6, weeks: 14 });
+      const s = evaluateScenario({
+        ...h.scenario,
+        season: { ...h.scenario.season, playoffWeeksPerRound },
+      });
+      return Math.max(...s.championship.values());
+    };
+    // Doubling the round doubles the mean gap but only sqrt(2)s the spread,
+    // so the favourite converts more often.
+    expect(odds(2)).toBeGreaterThan(odds(1));
+  });
+
+  it('keeps both matrices doubly stochastic, not just the one on screen', () => {
+    const h = buildHarness({ draftMode: 'tiered', tierAlpha: 0.35, playoffTeams: 6 });
+    const s = evaluateScenario({
+      ...h.scenario,
+      season: { ...h.scenario.season, playoffWeeksPerRound: 2 },
+    });
+    for (const m of [s.result.regularSeason, s.result.finish, s.result.draftSlots]) {
+      const check = checkDoublyStochastic(m, 1e-9);
+      expect(check.ok, `row ${check.maxRowError} col ${check.maxColumnError}`).toBe(true);
+    }
   });
 });

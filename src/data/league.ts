@@ -9,8 +9,10 @@ import {
   getRosters,
   getSchedule,
   getTradedPicks,
+  getWinnersBracket,
   isValuedPosition,
   toSlotKind,
+  type SleeperBracketMatch,
   type SleeperLeagueSummary,
   type SleeperPlayer,
   type SleeperTradedPick,
@@ -35,6 +37,15 @@ export interface LeagueSnapshot {
   standings: TeamStanding[];
   playoffTeams: number;
   playoffWeekStart: number;
+  /**
+   * Weeks per playoff round, from `playoff_round_type`. Two week rounds
+   * meaningfully favour the better team, so this is read rather than assumed.
+   */
+  playoffWeeksPerRound: number;
+  /** How the bracket shape was established, surfaced rather than implied. */
+  bracketSource: 'sleeper' | 'derived';
+  /** Rounds in the real winners bracket, when Sleeper has published one. */
+  playoffRounds: number;
   regularSeasonWeeks: number;
   leagueAverageMatch: boolean;
   consolationBracket: boolean;
@@ -144,6 +155,12 @@ export async function loadLeagueSnapshot(leagueId: string): Promise<LeagueSnapsh
     getTradedPicks(leagueId).catch(() => [] as SleeperTradedPick[]),
   ]);
 
+  // Best effort: the bracket only exists once the playoffs are seeded, and a
+  // dynasty tool is used most in the offseason when it does not.
+  const winnersBracket = await getWinnersBracket(leagueId).catch(
+    () => [] as SleeperBracketMatch[],
+  );
+
   const { shape, unsupported } = toLeagueShape(league);
   const settings = league.settings ?? {};
   const playoffWeekStart = settings.playoff_week_start || 15;
@@ -227,6 +244,12 @@ export async function loadLeagueSnapshot(leagueId: string): Promise<LeagueSnapsh
     })),
     playoffTeams: settings.playoff_teams || 6,
     playoffWeekStart,
+    playoffWeeksPerRound: weeksPerPlayoffRound(settings.playoff_round_type),
+    bracketSource: winnersBracket.length > 0 ? 'sleeper' : 'derived',
+    playoffRounds:
+      winnersBracket.length > 0
+        ? Math.max(...winnersBracket.map((m) => m.r ?? 1))
+        : Math.ceil(Math.log2(Math.max(2, settings.playoff_teams || 6))),
     regularSeasonWeeks,
     leagueAverageMatch: settings.league_average_match === 1,
     consolationBracket: !!(league as { loser_bracket_id?: string }).loser_bracket_id,
@@ -255,4 +278,14 @@ export function playerPool(players: Record<string, SleeperPlayer>): MatchCandida
     });
   }
   return pool;
+}
+
+/**
+ * `playoff_round_type` is Sleeper's own encoding: 0 means one week per round,
+ * anything else means the rounds run two weeks. The distinction changes upset
+ * probability, so an unrecognised value falls back to one week — the safer
+ * error, since it widens the distribution rather than falsely sharpening it.
+ */
+export function weeksPerPlayoffRound(roundType: number | undefined): number {
+  return typeof roundType === 'number' && roundType >= 1 ? 2 : 1;
 }

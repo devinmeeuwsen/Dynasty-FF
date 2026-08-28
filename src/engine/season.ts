@@ -35,6 +35,8 @@ export interface SeasonInput {
   /** Sleeper's `league_average_match`: an extra weekly win against the median. */
   leagueAverageMatch: boolean;
   consolationBracket: boolean;
+  /** Weeks per playoff round, from the league's own settings. Usually 1 or 2. */
+  playoffWeeksPerRound?: number;
   draftOrderRule: DraftOrderRule;
   seasons: number;
   weeklySigma: number;
@@ -117,7 +119,14 @@ export function simulateSeason(input: SeasonInput): SeasonResult {
 
   const baseline = new Map(input.standings.map((s) => [s.rosterId, s]));
   const rng: Rng = mulberry32(input.seed);
-  const play = makeGamePlayer(meanPoints, input.weeklySigma, rng);
+  // The regular season generates its own weekly scores inline; only the
+  // bracket needs a game player, and only the bracket varies in length.
+  const playPlayoff = makeGamePlayer(
+    meanPoints,
+    input.weeklySigma,
+    rng,
+    input.playoffWeeksPerRound ?? 1,
+  );
 
   const finishCounts = emptyMatrix(rosterIds);
   const draftCounts = emptyMatrix(rosterIds);
@@ -177,8 +186,8 @@ export function simulateSeason(input: SeasonInput): SeasonResult {
     const seeded = regularOrder.slice(0, playoffCount);
     const rest = regularOrder.slice(playoffCount);
 
-    const playoffOrder = rankBracket(seeded, play);
-    const consolationOrder = input.consolationBracket ? rankBracket(rest, play) : rest;
+    const playoffOrder = rankBracket(seeded, playPlayoff);
+    const consolationOrder = input.consolationBracket ? rankBracket(rest, playPlayoff) : rest;
     const finishOrder = [...playoffOrder, ...consolationOrder];
 
     const draftOrder = toDraftOrder(

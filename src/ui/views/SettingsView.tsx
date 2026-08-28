@@ -7,6 +7,7 @@ import { remoteSource } from '../../data/rankings/remote';
 import type { RankingList } from '../../data/rankings/types';
 import { shareUrl } from '../../state/persist';
 import { useStore } from '../../state/store';
+import { rankingFormatFor } from '../../data/rankings/types';
 import {
   Button,
   Callout,
@@ -154,7 +155,13 @@ export function SettingsView() {
                 <li>Dynasty overall: {assembled?.coverage.dynastyOverall ?? 0} matched</li>
                 <li>Redraft overall: {assembled?.coverage.redraftOverall ?? 0} matched</li>
                 <li>
-                  Format in use: {shape.superflex ? 'superflex' : 'one quarterback'} board
+                  Board in use: {rankingFormatFor(shape)}
+                </li>
+                <li>
+                  {shape.superflex ? 'Superflex' : 'One quarterback'}
+                  {shape.tightEndPremium > 0
+                    ? ` · +${shape.tightEndPremium} per TE reception`
+                    : ' · no tight end premium'}
                 </li>
                 <li>Unmatched names: {assembled?.unmatched.length ?? 0}</li>
               </ul>

@@ -11,6 +11,7 @@ import { makeCurve } from '../engine/rank';
 import { runPipeline, type PipelineResult } from '../engine/values';
 import { buildPickOwnership, auditOwnership, type OwnershipAudit } from '../engine/picks';
 import type { Scenario } from '../engine/scenario';
+import { assessPosture, type PostureResult } from '../engine/posture';
 import type { TradeProposal, TradeResult } from '../engine/trade';
 import { roundRobin } from '../engine/schedule';
 import type { WeekSchedule } from '../engine/schedule';
@@ -20,6 +21,7 @@ import { assemblePlayers, type AssembleResult } from '../data/assemble';
 import { bundledPlayerPool, bundledRankingSet, bundledSource } from '../data/rankings/bundled';
 import { remoteSource } from '../data/rankings/remote';
 import type { RankingSet, RankingSource } from '../data/rankings/types';
+import { rankingFormatFor } from '../data/rankings/types';
 import { loadLeagueSnapshot, playerPool, type LeagueSnapshot } from '../data/league';
 import {
   getLeagues,
@@ -92,6 +94,12 @@ interface State {
   simulating: boolean;
   simError: string | null;
   simElapsedMs: number | null;
+  /**
+   * Set only when the user drags the slider. While null the timeline is read
+   * off the simulation, so a league that changes shape re-places the team
+   * instead of leaving it on a stale setting nobody revisited.
+   */
+  contentionOverride: number | null;
 
   // Trade
   proposal: TradeProposal | null;
@@ -109,6 +117,8 @@ interface Actions {
   startSimulatedMode(config: ManualLeague): void;
   setSettings(patch: Partial<EngineSettings>): void;
   setContention(weight: number): void;
+  /** Hand the timeline back to the simulation after a manual override. */
+  clearContentionOverride(): void;
   setRankingSet(set: RankingSet): void;
   addNameOverride(normalisedName: string, playerId: string): void;
   setProposal(proposal: TradeProposal | null): void;
@@ -168,6 +178,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   scenario: null,
   simulating: false,
   simError: null,
+  contentionOverride: null,
   simElapsedMs: null,
 
   proposal: null,
@@ -317,7 +328,19 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   setContention(weight) {
-    set({ settings: { ...get().settings, contentionWeight: weight } });
+    set({
+      contentionOverride: weight,
+      settings: { ...get().settings, contentionWeight: weight },
+    });
+    persistNow(get());
+  },
+
+  clearContentionOverride() {
+    set({ contentionOverride: null });
+    const derived = selectPosture(get());
+    if (derived) {
+      set({ settings: { ...get().settings, contentionWeight: derived.weight } });
+    }
     persistNow(get());
   },
 
@@ -354,7 +377,7 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   recompute() {
     const state = get();
-    const format = state.shape.superflex ? 'superflex' : 'standard';
+    const format = rankingFormatFor(state.shape);
     const assembled = assemblePlayers({
       set: state.rankingSet,
       format,
@@ -401,6 +424,14 @@ export const useStore = create<State & Actions>((set, get) => ({
     try {
       const { scenario, elapsedMs } = await runSimulation(buildRequest(state));
       set({ scenario, simulating: false, simElapsedMs: elapsedMs, tradeResult: null });
+      // The timeline follows the simulation unless the user has taken it over.
+      const next = get();
+      if (next.contentionOverride == null && next.userRosterId != null) {
+        const derived = assessPosture(scenario, next.userRosterId);
+        if (Math.abs(derived.weight - next.settings.contentionWeight) > 1e-9) {
+          set({ settings: { ...next.settings, contentionWeight: derived.weight } });
+        }
+      }
     } catch (error) {
       set({
         simulating: false,
@@ -416,6 +447,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       username: persisted.username ?? '',
       settings: { ...DEFAULT_SETTINGS, ...persisted.settings },
       nameOverrides: new Map(Object.entries(persisted.nameOverrides ?? {})),
+      contentionOverride: persisted.contentionOverride ?? null,
     });
     if (persisted.leagueId) {
       void get().selectLeague(persisted.leagueId);
@@ -475,6 +507,7 @@ function buildRequest(state: State) {
       playoffTeams: league?.playoffTeams ?? 6,
       leagueAverageMatch: league?.leagueAverageMatch ?? false,
       consolationBracket: league?.consolationBracket ?? false,
+      playoffWeeksPerRound: league?.playoffWeeksPerRound ?? 1,
     },
   };
 }
@@ -488,6 +521,7 @@ function persistNow(state: State) {
       leagueId: state.league?.leagueId ?? null,
       settings: state.settings,
       nameOverrides: Object.fromEntries(state.nameOverrides),
+      contentionOverride: state.contentionOverride,
     };
     persist(payload);
   }, 250);
@@ -499,6 +533,15 @@ export const selectCurve = (state: State) =>
 
 export const selectUserRoster = (state: State) =>
   state.rosters.find((r) => r.rosterId === state.userRosterId) ?? null;
+
+/**
+ * Null until there is both a simulation and a team to place — simulated mode
+ * has no user roster, so there is nothing to be a contender relative to.
+ */
+export function selectPosture(state: State): PostureResult | null {
+  if (!state.scenario || state.userRosterId == null) return null;
+  return assessPosture(state.scenario, state.userRosterId);
+}
 
 export const selectTeamName = (state: State, rosterId: number) =>
   state.league?.teamNames.get(rosterId) ??

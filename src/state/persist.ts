@@ -12,6 +12,13 @@ export interface Persisted {
   leagueId: string | null;
   settings: EngineSettings;
   nameOverrides: Record<string, string>;
+  /**
+   * Null means the contention timeline follows the simulation. A number means
+   * the user took it over, and that choice outlives a reload — otherwise a
+   * manager who deliberately set a tank would silently be put back on the
+   * model's reading of their roster every time they opened the page.
+   */
+  contentionOverride?: number | null;
 }
 
 const KEY = 'dynasty-ff:state';

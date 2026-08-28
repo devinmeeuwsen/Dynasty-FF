@@ -141,6 +141,24 @@ bypassed entirely, because a value carries the gaps between players and an order
 does not. The curve, and the rule that QB/TE take ordering from positional lists but
 scale from the overall list, still apply to imported lists that carry ranks alone.
 
+### The board follows the league
+
+A player is priced on the board that matches the league's own settings, chosen
+in one place so the waiver wire, every roster, the trade calculator and pick
+valuation all read the same market:
+
+| League setting | Board |
+|---|---|
+| One quarterback | `standard` |
+| Superflex / 2QB | `superflex` |
+| `bonus_rec_te` 0.5 | `…​.tep` |
+| `bonus_rec_te` 1.0 | `…​.tepp` |
+| `bonus_rec_te` 1.5+ | `…​.teppp` |
+
+Sixteen boards in total. A tight end premium moves tight ends and nothing else,
+which the snapshot build asserts on every run, so premium boards ship as
+tight-end overrides merged onto the base board rather than as copies.
+
 ### Two columns, not one
 
 - **Rating** — 0-100 standalone market value. Every player has one, waiver wire
@@ -149,6 +167,37 @@ scale from the overall list, still apply to imported lists that carry ranks alon
   waiver wire; negative means the free agent pool already offers better. Signed on
   screen; the engine clamps it at zero internally, because a player who never cracks
   the lineup adds no marginal value to it.
+
+## Contention is derived, not asked
+
+The timeline at the top of every screen used to be a question put back to the
+user. It is now read off the simulation: the team's championship probability
+gives its standing among the teams it competes with, and its long term assets
+plus draft capital give the other axis. Dragging the slider still works and the
+override survives a reload.
+
+Keeping the two axes separate is what allows a sixth posture between contending
+and all in:
+
+| | Weak future | Strong future |
+|---|---|---|
+| **High odds** | All in — the window is this season | **Dynasty** — winning now on a roster that does not expire |
+| **Low odds** | Full rebuild | Rebuilding |
+
+## Two matrices, because they answer different questions
+
+The regular season matrix is where the schedule leaves each team, and it
+decides who reaches the bracket. The final standings matrix carries the same
+season through the playoffs. The bracket adds independent noise on top of the
+schedule, so the second can only be more spread than the first — in a league
+with real separation a dominant team can be near-certain to make the playoffs
+and still under even money for the title.
+
+Playoff structure comes from the league rather than an assumption:
+`playoff_teams` sizes the bracket, `playoff_round_type` sets whether rounds run
+one week or two (two-week rounds double the mean gap but only grow the spread
+by √2, so they favour the better team), and Sleeper's published bracket is read
+when it exists — which is only once the playoffs are seeded.
 
 ## Key documents
 

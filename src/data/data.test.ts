@@ -3,11 +3,13 @@ import { matchRankings, normalizeName } from './names';
 import { parseRankingText, listFromText } from './rankings/parse';
 import { bundledRankingSet, bundledPlayerPool } from './rankings/bundled';
 import { assemblePlayers } from './assemble';
+import { rankingFormatFor, tePremiumFor, toRankingFormat } from './rankings/types';
 import { toLeagueShape } from './league';
 import { toSlotKind } from './sleeper';
 import type { SleeperLeagueSummary } from './sleeper';
 import { blendedRating, blendedVar, runPipeline } from '../engine/values';
 import { DEFAULT_SETTINGS, POSITIONS } from '../engine/types';
+import type { SlotKind } from '../engine/types';
 
 const TAB = String.fromCharCode(9);
 
@@ -385,6 +387,119 @@ describe('ratings and value over replacement are separate columns', () => {
         expect(rating - vor).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe('league format decides which board a player is priced on', () => {
+  const set = bundledRankingSet();
+  const pool = bundledPlayerPool();
+
+  const price = (superflex: boolean, tightEndPremium: number) => {
+    const shape = {
+      teams: 12,
+      starters: (superflex
+        ? ['QB', 'RB', 'RB', 'WR', 'WR', 'WR', 'TE', 'FLEX', 'SUPER_FLEX']
+        : ['QB', 'RB', 'RB', 'WR', 'WR', 'WR', 'TE', 'FLEX']) as SlotKind[],
+      benchSlots: 6,
+      irSlots: 2,
+      taxiSlots: 0,
+      superflex,
+      tightEndPremium,
+    };
+    const format = rankingFormatFor({ superflex, tightEndPremium });
+    const { players } = assemblePlayers({ set, format, pool });
+    const result = runPipeline({
+      players,
+      shape,
+      settings: { lambda: DEFAULT_SETTINGS.lambda, curve: DEFAULT_SETTINGS.curve },
+    });
+    return { format, byName: new Map(result.players.map((p) => [p.name, p])), result };
+  };
+
+  it('maps Sleeper bonus_rec_te onto the board the market actually trades', () => {
+    expect(tePremiumFor(0)).toBe('base');
+    expect(tePremiumFor(0.5)).toBe('tep');
+    expect(tePremiumFor(1)).toBe('tepp');
+    expect(tePremiumFor(1.5)).toBe('teppp');
+    expect(rankingFormatFor({ superflex: true, tightEndPremium: 1 })).toBe('superflex.tepp');
+    expect(rankingFormatFor({ superflex: false, tightEndPremium: 0 })).toBe('standard');
+    expect(toRankingFormat('superflex', 'base')).toBe('superflex');
+  });
+
+  it('ships a distinct board for every quarterback and tight end combination', () => {
+    for (const horizon of ['dynasty', 'redraft'] as const) {
+      for (const qb of ['standard', 'superflex'] as const) {
+        for (const te of ['base', 'tep', 'tepp', 'teppp'] as const) {
+          const format = toRankingFormat(qb, te);
+          const list = set.lists.find(
+            (l) => l.horizon === horizon && l.scope === 'overall' && l.format === format,
+          );
+          expect(list, `${horizon}/${format}`).toBeTruthy();
+          expect(list!.entries.length).toBeGreaterThan(250);
+          // Rank must follow the merged ordering, not the base board's.
+          const ratings = list!.entries.map((e) => e.rating as number);
+          for (let i = 1; i < ratings.length; i++) {
+            expect(ratings[i]).toBeLessThanOrEqual(ratings[i - 1]);
+          }
+        }
+      }
+    }
+  });
+
+  it('raises quarterbacks in superflex and leaves other positions alone', () => {
+    const one = price(false, 0);
+    const sf = price(true, 0);
+    const qb = 'Josh Allen';
+    if (one.byName.has(qb) && sf.byName.has(qb)) {
+      expect(sf.byName.get(qb)!.longTermRating).toBeGreaterThan(
+        one.byName.get(qb)!.longTermRating * 1.15,
+      );
+    }
+    // More quarterbacks get rostered, so the quarterback wire gets thinner.
+    expect(sf.result.longTerm.replacement.levels.QB).toBeLessThan(
+      one.result.longTerm.replacement.levels.QB,
+    );
+  });
+
+  it('raises tight ends with the premium and moves nothing else', () => {
+    const base = price(false, 0);
+    const mid = price(false, 0.5);
+    const high = price(false, 1);
+    expect(base.format).toBe('standard');
+    expect(high.format).toBe('standard.tepp');
+
+    let tightEndsChecked = 0;
+    let othersChecked = 0;
+    for (const [name, p] of base.byName) {
+      const lifted = high.byName.get(name);
+      if (!lifted) continue;
+      if (p.position === 'TE') {
+        if (p.longTermRating > 5) {
+          expect(lifted.longTermRating).toBeGreaterThan(p.longTermRating);
+          tightEndsChecked += 1;
+        }
+      } else {
+        expect(lifted.longTermRating).toBeCloseTo(p.longTermRating, 6);
+        othersChecked += 1;
+      }
+    }
+    expect(tightEndsChecked).toBeGreaterThan(10);
+    expect(othersChecked).toBeGreaterThan(200);
+
+    // The premium is monotone: more points per reception is never worth less.
+    for (const [name, p] of base.byName) {
+      if (p.position !== 'TE' || p.longTermRating <= 5) continue;
+      const m = mid.byName.get(name);
+      const h = high.byName.get(name);
+      if (!m || !h) continue;
+      expect(m.longTermRating).toBeGreaterThanOrEqual(p.longTermRating);
+      expect(h.longTermRating).toBeGreaterThanOrEqual(m.longTermRating - 1e-9);
+    }
+
+    // A premium makes tight ends scarcer, so replacement level rises.
+    expect(high.result.longTerm.replacement.levels.TE).toBeGreaterThan(
+      base.result.longTerm.replacement.levels.TE,
+    );
   });
 });
 
