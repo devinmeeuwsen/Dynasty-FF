@@ -1,5 +1,6 @@
 import type { Position, SlotKind } from '../engine/types';
 import { cacheAge, cacheGet, cacheSet } from './cache';
+import { bundledPlayers, bundledPlayersAsOf } from './playerPool';
 
 /**
  * Sleeper integration.
@@ -171,20 +172,36 @@ export const getMatchups = (leagueId: string, week: number) =>
   get<SleeperMatchupEntry[]>(`/league/${leagueId}/matchups/${week}`);
 
 /**
- * The player file. Cached for a day, never fetched on page load, and served
- * from cache immediately when fresh.
+ * The player file.
+ *
+ * Never fetched on page load. A trimmed pool ships with the build, so the first
+ * visit costs no network and no wait; a previously cached live pull takes
+ * precedence over it, and `refreshPlayers` pulls live on demand.
  */
-export async function getPlayers(
-  options: { force?: boolean } = {},
-): Promise<Record<string, SleeperPlayer>> {
-  if (!options.force) {
-    const cached = await cacheGet<Record<string, SleeperPlayer>>(PLAYERS_CACHE_KEY);
-    if (cached) return cached;
-  }
+export async function getPlayers(): Promise<Record<string, SleeperPlayer>> {
+  const cached = await cacheGet<Record<string, SleeperPlayer>>(PLAYERS_CACHE_KEY);
+  if (cached) return cached;
+  return bundledPlayers();
+}
+
+/**
+ * Pull the live player file from Sleeper and cache it for a day. Only ever
+ * called from an explicit user action, which keeps us well inside Sleeper's
+ * request-once-per-day guidance.
+ */
+export async function refreshPlayers(): Promise<Record<string, SleeperPlayer>> {
   const players = await get<Record<string, SleeperPlayer>>('/players/nfl');
   const trimmed = trimPlayerFile(players);
   await cacheSet(PLAYERS_CACHE_KEY, trimmed, PLAYERS_TTL_MS);
   return trimmed;
+}
+
+/** Where the player data currently in use came from. */
+export async function playersSource(): Promise<{ live: boolean; asOf: string }> {
+  const at = await cacheAge(PLAYERS_CACHE_KEY, PLAYERS_TTL_MS);
+  return at
+    ? { live: true, asOf: at.toISOString().slice(0, 10) }
+    : { live: false, asOf: bundledPlayersAsOf };
 }
 
 export const playersCachedAt = () => cacheAge(PLAYERS_CACHE_KEY, PLAYERS_TTL_MS);

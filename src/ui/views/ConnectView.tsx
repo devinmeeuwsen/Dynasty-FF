@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useStore, type ManualLeague } from '../../state/store';
 import { Button, Callout, Field, NumberInput, Panel, PanelHeader, Select, TextInput } from '../components/primitives';
-import { relativeTime } from '../format';
 
 const PRESETS: { id: string; label: string; hint: string; config: ManualLeague }[] = [
   {
@@ -56,7 +55,7 @@ export function ConnectView() {
   const startSimulatedMode = useStore((s) => s.startSimulatedMode);
   const refreshLeague = useStore((s) => s.refreshLeague);
   const reset = useStore((s) => s.reset);
-  const cachedAt = useStore((s) => s.playersCachedAt);
+  const playersAsOf = useStore((s) => s.playersAsOf);
 
   const [manual, setManual] = useState<ManualLeague>(PRESETS[0].config);
   const [showManual, setShowManual] = useState(false);
@@ -162,7 +161,10 @@ export function ConnectView() {
                   Schedule: {league.scheduleSource === 'sleeper' ? 'from Sleeper' : 'generated round robin'} ·{' '}
                   {league.remainingSchedule.length} weeks remaining
                 </li>
-                <li>Player file cached {relativeTime(cachedAt)}</li>
+                <li>
+                  Player data {playersAsOf?.live ? 'pulled live' : 'shipped with this build'} ·{' '}
+                  {playersAsOf?.asOf ?? '—'}
+                </li>
               </ul>
               {league.warnings.length > 0 ? (
                 <ul className="mt-2 space-y-1 border-t border-white/10 pt-2 text-ink-300">

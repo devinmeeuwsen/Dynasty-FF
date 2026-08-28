@@ -21,7 +21,14 @@ import { bundledPlayerPool, bundledRankingSet, bundledSource } from '../data/ran
 import { remoteSource } from '../data/rankings/remote';
 import type { RankingSet, RankingSource } from '../data/rankings/types';
 import { loadLeagueSnapshot, playerPool, type LeagueSnapshot } from '../data/league';
-import { getLeagues, getNflState, getPlayers, getUser, playersCachedAt } from '../data/sleeper';
+import {
+  getLeagues,
+  getNflState,
+  getPlayers,
+  getUser,
+  playersSource,
+  refreshPlayers,
+} from '../data/sleeper';
 import type { SleeperLeagueSummary, SleeperUser } from '../data/sleeper';
 import type { MatchCandidate } from '../data/names';
 import { runSimulation, runTrade } from './simClient';
@@ -57,7 +64,8 @@ interface State {
   userRosterId: number | null;
   connecting: boolean;
   connectError: string | null;
-  playersCachedAt: Date | null;
+  playersAsOf: { live: boolean; asOf: string } | null;
+  refreshingPlayers: boolean;
 
   // Ranking layer
   rankingSet: RankingSet;
@@ -97,6 +105,7 @@ interface Actions {
   lookupUser(): Promise<void>;
   selectLeague(leagueId: string): Promise<void>;
   refreshLeague(): Promise<void>;
+  refreshPlayerData(): Promise<void>;
   startSimulatedMode(config: ManualLeague): void;
   setSettings(patch: Partial<EngineSettings>): void;
   setContention(weight: number): void;
@@ -136,7 +145,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   userRosterId: null,
   connecting: false,
   connectError: null,
-  playersCachedAt: null,
+  playersAsOf: null,
+  refreshingPlayers: false,
 
   rankingSet: bundledRankingSet(),
   rankingSources: [bundledSource, remoteSource],
@@ -218,7 +228,7 @@ export const useStore = create<State & Actions>((set, get) => ({
         pool,
         userRosterId,
         connecting: false,
-        playersCachedAt: await playersCachedAt(),
+        playersAsOf: await playersSource(),
         screen: 'players',
       });
       get().recompute();
@@ -232,6 +242,23 @@ export const useStore = create<State & Actions>((set, get) => ({
             ? `${error.message} You can still use simulated mode.`
             : 'Could not load that league.',
       });
+    }
+  },
+
+  async refreshPlayerData() {
+    set({ refreshingPlayers: true });
+    try {
+      const players = await refreshPlayers();
+      set({ pool: playerPool(players), playersAsOf: await playersSource() });
+      get().recompute();
+      if (get().mode === 'synced') void get().runBaseline();
+    } catch (error) {
+      set({
+        connectError:
+          error instanceof Error ? error.message : 'Could not refresh player data.',
+      });
+    } finally {
+      set({ refreshingPlayers: false });
     }
   },
 

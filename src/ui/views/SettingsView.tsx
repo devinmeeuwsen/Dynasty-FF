@@ -56,6 +56,9 @@ export function SettingsView() {
   const league = useStore((s) => s.league);
   const username = useStore((s) => s.username);
   const shape = useStore((s) => s.shape);
+  const playersAsOf = useStore((s) => s.playersAsOf);
+  const refreshingPlayers = useStore((s) => s.refreshingPlayers);
+  const refreshPlayerData = useStore((s) => s.refreshPlayerData);
   const [copied, setCopied] = useState(false);
 
   const activePayout =
@@ -171,6 +174,30 @@ export function SettingsView() {
           ) : null}
 
           <RankingImport onReplace={setRankingSet} />
+        </div>
+      </Panel>
+
+      <Panel>
+        <PanelHeader
+          title="Player data"
+          subtitle="A trimmed player pool ships with the build, so the app loads without waiting on a 14MB download. Pull live only if you need players added since the last release."
+        />
+        <div className="flex flex-wrap items-center gap-3 p-4 sm:p-5">
+          <Button
+            size="sm"
+            onClick={refreshPlayerData}
+            disabled={refreshingPlayers}
+          >
+            {refreshingPlayers ? 'Refreshing…' : 'Refresh from Sleeper'}
+          </Button>
+          <span className="text-[0.75rem] text-ink-400">
+            Currently using{' '}
+            <span className="text-ink-200">
+              {playersAsOf?.live ? 'live data' : 'the shipped pool'}
+            </span>{' '}
+            from {playersAsOf?.asOf ?? '—'}. Sleeper asks that this file be fetched no more
+            than once a day; it is cached for 24 hours.
+          </span>
         </div>
       </Panel>
 
