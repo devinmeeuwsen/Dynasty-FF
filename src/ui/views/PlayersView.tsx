@@ -50,7 +50,7 @@ export function PlayersView() {
         <Panel className="overflow-hidden animate-rise">
           <PanelHeader
             title="Player board"
-            subtitle="Sortable and filterable. Blended value follows the timeline slider; the gap column is a direction, never a value."
+            subtitle="Rating is standalone market value on a 0-100 scale; VAR is that rating measured against the best unrostered player at the position. Both follow the timeline slider. The gap column is a direction, never a value."
           />
           <PlayerTable
             players={players}
@@ -83,7 +83,9 @@ function ScatterPanel() {
   );
 
   const shown = useMemo(() => {
-    const withValue = pipeline.players.filter((p) => p.winNow > 0 || p.longTerm > 0);
+    const withValue = pipeline.players.filter(
+      (p) => p.winNowRating > 0 || p.longTermRating > 0,
+    );
     return onlyMine ? withValue.filter((p) => mine.has(p.id)) : withValue;
   }, [pipeline, onlyMine, mine]);
 
@@ -91,7 +93,7 @@ function ScatterPanel() {
     <Panel className="animate-rise">
       <PanelHeader
         title="Win now against long term"
-        subtitle="The quadrants label themselves. Anything at the origin is a waiver wire player by construction."
+        subtitle="Plotted on the 0-100 rating, so the waiver wire sits in the bottom left rather than collapsed onto the origin. The quadrants label themselves."
         right={
           userRosterId != null ? (
             <Toggle
@@ -146,14 +148,15 @@ function FreeAgentPanel() {
   }
 
   const free = pipeline.players.filter((p) => p.ownerRosterId == null);
-  const bestRaw = [...free].sort((a, b) => b.winNowRaw - a.winNowRaw).slice(0, 4);
+  const bestRaw = [...free].sort((a, b) => b.winNowRating - a.winNowRating).slice(0, 4);
 
   return (
     <div className="space-y-4 animate-rise">
-      <Callout tone="info" title="Every player on this list is worth exactly zero, and that is correct">
-        Replacement level is defined as the best unrostered player at each position, so value above
-        replacement on the waiver wire is zero by construction. What ranks them here is raw value:
-        who is closest to being worth something if a starter goes down.
+      <Callout tone="info" title="These players have a rating; what they mostly lack is value above it">
+        Every player carries a 0-100 market rating, waiver wire included, and that is what ranks
+        this list. The VAR column is the other question: replacement level is defined as the best
+        unrostered player at each position, so the four below sit at zero by construction and
+        anyone worse than them goes negative.
       </Callout>
 
       <Panel className="overflow-hidden">
@@ -171,7 +174,7 @@ function FreeAgentPanel() {
                 {player.name}
               </div>
               <div className="num mt-1 text-[0.75rem] text-ink-400">
-                raw {value(player.winNowRaw, 2)} · above replacement {value(player.winNow, 2)}
+                rating {value(player.winNowRating, 2)} · VAR {value(player.winNowVar, 2)}
               </div>
             </li>
           ))}

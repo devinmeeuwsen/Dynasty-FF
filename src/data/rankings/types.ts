@@ -7,7 +7,20 @@ export interface RankingEntry {
   team: string | null;
   /** 1-based rank inside whichever list this entry came from. */
   rank: number;
-  /** Present only for entries that came in already keyed to Sleeper. */
+  /**
+   * A 0-100 market value, when the source publishes values rather than only an
+   * ordering. KeepTradeCut does; a pasted FantasyPros export does not. Where
+   * this is present the engine uses it directly and the rank→value curve is
+   * bypassed entirely, because a value carries strictly more information than
+   * the ordering it implies.
+   */
+  rating?: number;
+  /**
+   * Present ONLY for entries already keyed to Sleeper's own player ids. Never
+   * set this from a foreign identifier: match_rankings trusts it and skips name
+   * matching, and foreign id spaces collide with Sleeper's — 25 of KeepTradeCut's
+   * mflids are also valid Sleeper ids belonging to different players.
+   */
   sleeperId?: string;
   age?: number | null;
   tier?: number | null;

@@ -6,7 +6,7 @@ import { assemblePlayers } from './assemble';
 import { toLeagueShape } from './league';
 import { toSlotKind } from './sleeper';
 import type { SleeperLeagueSummary } from './sleeper';
-import { runPipeline } from '../engine/values';
+import { blendedRating, blendedVar, runPipeline } from '../engine/values';
 import { DEFAULT_SETTINGS, POSITIONS } from '../engine/types';
 
 const TAB = String.fromCharCode(9);
@@ -165,8 +165,19 @@ describe('bundled snapshot', () => {
           (l) => l.horizon === horizon && l.scope === 'overall' && l.format === format,
         );
         expect(list, `${horizon}/${format}`).toBeTruthy();
-        expect(list!.entries.length).toBeGreaterThan(300);
+        // KeepTradeCut's dynasty board runs deeper than its redraft board.
+        // Both must still cover a deep league's rostered players plus a
+        // meaningful waiver wire beneath them.
+        expect(list!.entries.length).toBeGreaterThanOrEqual(horizon === 'dynasty' ? 400 : 250);
         expect(list!.entries[0].rank).toBe(1);
+        // Every entry carries a 0-100 market value, not just an ordering.
+        for (const entry of list!.entries) {
+          expect(entry.rating).toBeGreaterThan(0);
+          expect(entry.rating).toBeLessThanOrEqual(100);
+        }
+        // Foreign identifiers must never masquerade as Sleeper ids: 25 of
+        // KeepTradeCut's mflids are also valid Sleeper ids for other players.
+        expect(list!.entries.every((e) => e.sleeperId === undefined)).toBe(true);
       }
     }
   });
@@ -178,8 +189,17 @@ describe('bundled snapshot', () => {
       )!;
       return list.entries.findIndex((e) => e.position === 'QB') + 1;
     };
-    expect(firstQb('superflex')).toBeLessThan(8);
-    expect(firstQb('standard')).toBeGreaterThan(10);
+    const qbsInTop24 = (format: 'standard' | 'superflex') => {
+      const list = set.lists.find(
+        (l) => l.horizon === 'redraft' && l.scope === 'overall' && l.format === format,
+      )!;
+      return list.entries.slice(0, 24).filter((e) => e.position === 'QB').length;
+    };
+    // Assert the relationship rather than an absolute rank. How aggressively a
+    // one-quarterback market discounts the position is the market's opinion,
+    // not this codebase's, and it moves week to week.
+    expect(firstQb('superflex')).toBeLessThan(firstQb('standard'));
+    expect(qbsInTop24('superflex')).toBeGreaterThan(qbsInTop24('standard'));
   });
 
   it('moves young players up and old players down between redraft and dynasty', () => {
@@ -189,11 +209,12 @@ describe('bundled snapshot', () => {
     const dynasty = set.lists.find(
       (l) => l.horizon === 'dynasty' && l.scope === 'overall' && l.format === 'standard',
     )!;
-    const dynastyRank = new Map(dynasty.entries.map((e) => [e.sleeperId, e.rank]));
+    // Joined on name: these lists carry no Sleeper ids, by design.
+    const dynastyRank = new Map(dynasty.entries.map((e) => [e.name, e.rank]));
 
     const shifts = redraft.entries
-      .filter((e) => e.rank <= 150 && e.age != null && dynastyRank.has(e.sleeperId))
-      .map((e) => ({ age: e.age as number, shift: e.rank - (dynastyRank.get(e.sleeperId) as number) }));
+      .filter((e) => e.rank <= 150 && e.age != null && dynastyRank.has(e.name))
+      .map((e) => ({ age: e.age as number, shift: e.rank - (dynastyRank.get(e.name) as number) }));
 
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
     const young = mean(shifts.filter((s) => s.age <= 23).map((s) => s.shift));
@@ -214,10 +235,15 @@ describe('assembling engine players from a ranking set', () => {
     expect(result.unmatched).toEqual([]);
     expect(result.players.length).toBeGreaterThan(400);
     for (const player of result.players) {
-      expect(player.dynastyOverallRank).not.toBeNull();
-      expect(player.redraftOverallRank).not.toBeNull();
-      expect(player.dynastyPositionRank).not.toBeNull();
-      expect(player.redraftPositionRank).not.toBeNull();
+      // The two boards are different depths, so a player can be priced on one
+      // horizon and not the other. What must never happen is a player carried
+      // with no ranking at all, or an overall rank with no positional rank.
+      expect(player.dynastyOverallRank != null || player.redraftOverallRank != null).toBe(true);
+      expect(player.dynastyPositionRank == null).toBe(player.dynastyOverallRank == null);
+      expect(player.redraftPositionRank == null).toBe(player.redraftOverallRank == null);
+      // A rank from a value-publishing board must carry its value with it.
+      expect(player.dynastyRating == null).toBe(player.dynastyOverallRank == null);
+      expect(player.redraftRating == null).toBe(player.redraftOverallRank == null);
     }
 
     const shape = {
@@ -246,12 +272,118 @@ describe('assembling engine players from a ranking set', () => {
     const result = assemblePlayers({ set, format: 'superflex', pool });
     for (const position of POSITIONS) {
       const ranks = result.players
-        .filter((p) => p.position === position)
+        .filter((p) => p.position === position && p.dynastyPositionRank != null)
         .map((p) => p.dynastyPositionRank as number)
         .sort((a, b) => a - b);
       expect(ranks[0]).toBe(1);
       expect(new Set(ranks).size).toBe(ranks.length);
       expect(ranks[ranks.length - 1]).toBe(ranks.length);
+    }
+  });
+});
+
+describe('ratings and value over replacement are separate columns', () => {
+  const set = bundledRankingSet();
+  const pool = bundledPlayerPool();
+  const shape = {
+    teams: 12,
+    starters: ['QB', 'RB', 'RB', 'WR', 'WR', 'WR', 'TE', 'FLEX', 'SUPER_FLEX'] as const,
+    benchSlots: 6,
+    irSlots: 2,
+    taxiSlots: 0,
+    superflex: true,
+    tightEndPremium: 0,
+  };
+
+  const build = () => {
+    const { players } = assemblePlayers({ set, format: 'superflex', pool });
+    // Roster the top 180 by dynasty board order, leaving a real waiver wire.
+    const rostered = [...players]
+      .filter((p) => p.dynastyOverallRank != null)
+      .sort((a, b) => (a.dynastyOverallRank as number) - (b.dynastyOverallRank as number))
+      .slice(0, shape.teams * 15);
+    const ownership = new Map(rostered.map((p, i) => [p.id, (i % shape.teams) + 1]));
+    return runPipeline({
+      players,
+      shape: { ...shape, starters: [...shape.starters] },
+      settings: { lambda: DEFAULT_SETTINGS.lambda, curve: DEFAULT_SETTINGS.curve },
+      ownership,
+    });
+  };
+
+  it('reads market values straight through instead of re-deriving them from rank', () => {
+    const { players } = assemblePlayers({ set, format: 'superflex', pool });
+    const result = runPipeline({
+      players,
+      shape: { ...shape, starters: [...shape.starters] },
+      settings: { lambda: DEFAULT_SETTINGS.lambda, curve: DEFAULT_SETTINGS.curve },
+    });
+    const byId = new Map(players.map((p) => [p.id, p]));
+    for (const valued of result.players) {
+      const source = byId.get(valued.id)!;
+      if (source.dynastyRating != null) {
+        expect(valued.longTermRating).toBeCloseTo(source.dynastyRating, 6);
+      }
+      if (source.redraftRating != null) {
+        expect(valued.winNowRating).toBeCloseTo(source.redraftRating, 6);
+      }
+    }
+  });
+
+  it('gives waiver wire players a real rating rather than flattening them to zero', () => {
+    const result = build();
+    const free = result.players.filter((p) => p.ownerRosterId == null);
+    expect(free.length).toBeGreaterThan(50);
+
+    // The whole point: a free agent has standalone worth on the same 0-100
+    // scale as everyone else.
+    const rated = free.filter((p) => p.longTermRating > 0);
+    expect(rated.length).toBe(free.length);
+    expect(Math.max(...free.map((p) => p.longTermRating))).toBeGreaterThan(1);
+
+    for (const player of result.players) {
+      expect(player.longTermRating).toBeGreaterThan(0);
+      expect(player.longTermRating).toBeLessThanOrEqual(100);
+      expect(player.winNowRating).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('measures value over replacement as a signed second column', () => {
+    const result = build();
+
+    // The player who sets replacement level is exactly zero, by construction.
+    const replacementId = result.longTerm.replacement.players.WR;
+    const replacement = result.players.find((p) => p.id === replacementId)!;
+    expect(replacement.longTermVar).toBeCloseTo(0, 6);
+
+    // Below him the column goes negative: worse than freely available.
+    const negatives = result.players.filter((p) => p.longTermVar < 0);
+    expect(negatives.length).toBeGreaterThan(0);
+    for (const player of negatives) {
+      expect(player.longTermRating).toBeGreaterThan(0); // still rated
+      expect(player.longTerm).toBe(0); // engine value stays clamped
+    }
+
+    // Starters clear replacement comfortably.
+    const best = [...result.players].sort((a, b) => b.longTermRating - a.longTermRating)[0];
+    expect(best.longTermVar).toBeGreaterThan(0);
+    expect(best.longTerm).toBeCloseTo(best.longTermVar, 6);
+  });
+
+  it('keeps the two columns consistent under the contention blend', () => {
+    const result = build();
+    for (const weight of [0, 0.5, 1]) {
+      for (const player of result.players.slice(0, 40)) {
+        const rating = blendedRating(player, weight);
+        const vor = blendedVar(player, weight);
+        expect(rating).toBeCloseTo(
+          weight * player.winNowRating + (1 - weight) * player.longTermRating,
+          6,
+        );
+        // The gap between the columns is the blended replacement level, so it
+        // is the same for every player at a position regardless of weight.
+        expect(rating - vor).toBeGreaterThan(0);
+      }
     }
   });
 });

@@ -28,6 +28,9 @@ const ALIASES: Record<string, string> = {
   markstjulien: 'markstjulien',
   amonrastbrown: 'amonrastbrown',
   dkmetcalf: 'dkmetcalf',
+  // KeepTradeCut uses given names where Sleeper uses the common short form.
+  kennethgainwell: 'kennygainwell',
+  bamknight: 'zonovanknight',
   aj: 'aj',
   cj: 'cj',
   tj: 'tj',

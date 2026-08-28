@@ -127,17 +127,28 @@ scripts/        Bundled-snapshot generator and its age/horizon model.
 
 Three sources behind one interface:
 
-- **Bundled snapshot** (ships in the repo) — derived from Sleeper's free public
-  ordering with a documented QB discount for 1QB formats and an age/position horizon
-  model for dynasty. An approximation so the app works out of the box; provenance is
-  shown in the UI.
+- **KeepTradeCut market values** (ships in the repo) — crowdsourced dynasty and redraft
+  values, rescaled to 0-100. Captured at build time, twice per deploy, so a visit costs
+  KeepTradeCut nothing and the app works offline on first paint. Values belong to
+  [keeptradecut.com](https://keeptradecut.com) and are attributed in the UI.
 - **Paste / file import** — FantasyPros CSV exports, spreadsheet pastes, or plain
-  numbered lists. This is the supported way to use real market rankings.
-- **Automated refresh** — deliberately a stub; requires a licensed feed (see
-  `DECISIONS.md`).
+  numbered lists. Overrides the bundled board.
+- **Live refresh in the browser** — not available: KeepTradeCut serves HTML with no
+  CORS header. Refresh happens on each deploy instead (see `DECISIONS.md`).
 
-QB and TE take their **ordering** from positional lists but their **value scale** from
-the overall list, so cross-position comparison stays meaningful.
+A source that publishes **values** is used as published — the rank→value curve is
+bypassed entirely, because a value carries the gaps between players and an ordering
+does not. The curve, and the rule that QB/TE take ordering from positional lists but
+scale from the overall list, still apply to imported lists that carry ranks alone.
+
+### Two columns, not one
+
+- **Rating** — 0-100 standalone market value. Every player has one, waiver wire
+  included.
+- **VAR** — rating minus the best unrostered player at that position. Zero *is* the
+  waiver wire; negative means the free agent pool already offers better. Signed on
+  screen; the engine clamps it at zero internally, because a player who never cracks
+  the lineup adds no marginal value to it.
 
 ## Key documents
 

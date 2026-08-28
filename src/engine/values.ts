@@ -62,6 +62,7 @@ function toRankInputs(
     position: p.position,
     overallRank: which === 'dynasty' ? p.dynastyOverallRank : p.redraftOverallRank,
     positionRank: which === 'dynasty' ? p.dynastyPositionRank : p.redraftPositionRank,
+    rating: which === 'dynasty' ? p.dynastyRating : p.redraftRating,
   }));
 }
 
@@ -90,7 +91,20 @@ function runHorizon(
   };
 }
 
-/** Step 4. Every waiver wire player lands at exactly zero by construction. */
+/**
+ * Step 4, signed. Positive beats the best free agent at the position, negative
+ * loses to him. The replacement player himself is exactly zero by construction.
+ */
+export function valueOverReplacement(rating: number, replacement: number): number {
+  return rating - replacement;
+}
+
+/**
+ * Step 4, clamped. This is what the rest of the engine consumes: lineup
+ * optimisation, roster strength, trades and picks all want MARGINAL value, and
+ * a player who would never crack the lineup adds none. Only the display layer
+ * wants the signed number.
+ */
 export function valueAboveReplacement(raw: number, replacement: number): number {
   return Math.max(0, raw - replacement);
 }
@@ -100,21 +114,27 @@ export function runPipeline(input: PipelineInput): PipelineResult {
   const longTerm = runHorizon(input.players, 'dynasty', input);
 
   const valued: ValuedPlayer[] = input.players.map((p) => {
-    const winNowRaw = winNow.curves.values.get(p.id) ?? 0;
-    const longTermRaw = longTerm.curves.values.get(p.id) ?? 0;
-    const w = valueAboveReplacement(winNowRaw, winNow.replacement.levels[p.position]);
-    const l = valueAboveReplacement(longTermRaw, longTerm.replacement.levels[p.position]);
+    const winNowRating = winNow.curves.values.get(p.id) ?? 0;
+    const longTermRating = longTerm.curves.values.get(p.id) ?? 0;
+    const winNowVar = valueOverReplacement(winNowRating, winNow.replacement.levels[p.position]);
+    const longTermVar = valueOverReplacement(longTermRating, longTerm.replacement.levels[p.position]);
     return {
       id: p.id,
       name: p.name,
       position: p.position,
       team: p.team,
       age: p.age,
-      winNowRaw,
-      longTermRaw,
-      winNow: w,
-      longTerm: l,
-      timelineGap: w - l,
+      winNowRating,
+      longTermRating,
+      winNowVar,
+      longTermVar,
+      winNowRaw: winNowRating,
+      longTermRaw: longTermRating,
+      winNow: Math.max(0, winNowVar),
+      longTerm: Math.max(0, longTermVar),
+      // Compared on ratings, so the direction reflects the player rather than
+      // the two positions' replacement levels happening to differ.
+      timelineGap: winNowRating - longTermRating,
       ownerRosterId: input.ownership?.get(p.id) ?? null,
     };
   });
@@ -133,6 +153,16 @@ export function runPipeline(input: PipelineInput): PipelineResult {
  */
 export function blendedValue(player: ValuedPlayer, weight: number): number {
   return weight * player.winNow + (1 - weight) * player.longTerm;
+}
+
+/** The 0-100 rating blended across the two horizons. Never clamped. */
+export function blendedRating(player: ValuedPlayer, weight: number): number {
+  return weight * player.winNowRating + (1 - weight) * player.longTermRating;
+}
+
+/** Signed value over replacement, blended across the two horizons. */
+export function blendedVar(player: ValuedPlayer, weight: number): number {
+  return weight * player.winNowVar + (1 - weight) * player.longTermVar;
 }
 
 /** Total blended value of a set of players, used by roster efficiency views. */

@@ -67,6 +67,12 @@ export interface EnginePlayer {
   dynastyPositionRank: number | null;
   /** Rank within position in the redraft positional list, 1-based. */
   redraftPositionRank: number | null;
+  /**
+   * 0-100 market value from a source that publishes values, not just an order.
+   * When present the rank→value curve is bypassed for this player.
+   */
+  dynastyRating?: number | null;
+  redraftRating?: number | null;
 }
 
 /** Which of the two independent pipelines a value came from. */
@@ -91,13 +97,32 @@ export interface ValuedPlayer {
   position: Position;
   team: string | null;
   age: number | null;
-  /** Raw value off the redraft curve, before replacement is subtracted. */
+  /**
+   * The 0-100 rating. This is the standalone worth of the player, on the same
+   * scale for everyone: a free agent gets his real number here rather than
+   * being flattened to zero, so the board reads like a rating list.
+   */
+  winNowRating: number;
+  longTermRating: number;
+  /**
+   * Rating minus this position's replacement level, SIGNED. Positive means the
+   * player beats the best freely available body at his position; negative means
+   * he is worse than what the waiver wire already offers, which is real
+   * information and is why this is not clamped.
+   */
+  winNowVar: number;
+  longTermVar: number;
+  /** Alias of the rating kept for the raw pre-replacement value. */
   winNowRaw: number;
-  /** Raw value off the dynasty curve, before replacement is subtracted. */
+  /** Alias of the rating kept for the raw pre-replacement value. */
   longTermRaw: number;
-  /** max(0, winNowRaw - replacement). Every free agent lands at exactly 0. */
+  /**
+   * max(0, winNowVar). What the engine consumes — lineup optimisation, roster
+   * strength, trades and picks all want marginal value, and a player you would
+   * never start contributes none. Display reads winNowVar instead.
+   */
   winNow: number;
-  /** max(0, longTermRaw - replacement). */
+  /** max(0, longTermVar). */
   longTerm: number;
   /** Directional indicator only. Never a value. */
   timelineGap: number;

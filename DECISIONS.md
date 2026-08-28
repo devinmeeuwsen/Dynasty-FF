@@ -184,21 +184,59 @@ league to test against.
 
 ## Automated ranking refresh
 
-**Shipped: a stub that says no.** FantasyPros' terms do not permit scraping their
-ranking pages, and their API is a paid/partner product. The `RankingSource` interface
-is built so a licensed feed drops in as a third implementation with zero pipeline
-changes. Until then: the bundled snapshot (derived from Sleeper's own free public
-`search_rank` ordering plus a documented age-horizon model — provenance stated in the
-UI) makes the app work out of the box, and paste/file import of a FantasyPros export is
-the supported refresh path. **Decision needed from you:** whether to pursue the paid
-feed; nothing else in the codebase is blocked on it.
+**Now shipped, from KeepTradeCut rather than FantasyPros.** FantasyPros' terms do not
+permit scraping and their feed is a paid/partner product, so that door stayed shut.
+KeepTradeCut is a different case, checked rather than assumed: `robots.txt` is
+`Allow: /` with no disallows, there is no terms-of-service page, and the dynasty and
+redraft boards are served without a login or paywall. Both boards embed the full data
+as a `playersArray` literal, so one request each gets everything.
 
-## One more decision made without asking (flagged for review)
+The refresh runs at **build time only** — two requests per deploy, never one per
+visitor — and the result is committed, so a KeepTradeCut outage degrades to the last
+good snapshot instead of breaking the site. Attribution appears in the UI and README.
+An in-browser refresh is impossible regardless: those boards carry no
+`access-control-allow-origin` header.
+
+**Still worth your judgement:** this is a courtesy read of a free public site, not a
+licensed feed. If this ever becomes high-traffic or commercial, ask KeepTradeCut
+directly. Nothing else in the codebase is blocked on that conversation.
+
+### Two identifier traps, both live
+
+Keying the two boards together looked trivial and was not:
+
+- **`playerID` is per-board.** Of the players on both boards, 184 of 281 carry a
+  *different* `playerID` on each. Keying on it welded the redraft board's values onto
+  the wrong dynasty names — it put a fringe receiver at redraft WR4 wearing Drake
+  Maye's number. `mflid` is stable across both, present on every row and unique within
+  a board. The builder validates all three of those properties on every run and then
+  checks that dynasty and redraft ratings still correlate (r ≈ 0.91), which is the
+  check that actually catches cross-wiring.
+- **KeepTradeCut's mflids collide with Sleeper's player ids.** 25 of them are also
+  valid Sleeper ids belonging to *different* players — mflid 13116 is Patrick Mahomes,
+  Sleeper 13116 is Tre Watson. `matchRankings` trusts `entry.sleeperId` and skips name
+  matching when it is set, so the bundled board deliberately leaves it unset and goes
+  through name matching. That is asserted in the test suite.
+
+## Superseded: the synthesized dynasty ordering
+
+Kept for the record — the section below described the old bundled snapshot, which
+derived a dynasty ordering from Sleeper's single `search_rank` list via an age model.
+KeepTradeCut supplies both horizons directly, so none of it is live any more. The
+builder and its age model are **deleted rather than kept as a fallback**: they wrote
+the v1 snapshot format to the same path the v2 loader reads, so running one would have
+silently replaced real market values with derived ones and broken the app in a way no
+type check would catch. Git history has them if a Sleeper-only fallback is ever wanted.
+Two things the swap fixed outright: Sleeper's `active` flag is unreliable,
+so 185 of the old snapshot's 500 players had no NFL team and Tom Brady sat at dynasty
+QB ~90 overall; and the age curves were this codebase's opinion, where the market's own
+view is now observed directly (players 23 and under gain ~12 ranks between the redraft
+and dynasty boards, players 29 and over lose ~26).
 
 **The bundled snapshot's dynasty ordering is synthesized, not sourced.** Sleeper
 publishes only one ordering; dynasty vs redraft and 1QB vs superflex are derived from
 it via the documented QB discount (0.76 for 1QB boards, landing QB1 ~overall 15) and
-the age-horizon model in `scripts/age-model.mjs`. The orderings pass smell tests
+the age-horizon model that used to live in `scripts/age-model.mjs`. The orderings pass smell tests
 (rookies climb in dynasty, 30-year-old RBs fall, superflex QB1 goes ~4th overall), but
 it is a model of a market, not the market. The UI labels it and every serious user
 should import a real board. This was the only way to satisfy "works out of the box"

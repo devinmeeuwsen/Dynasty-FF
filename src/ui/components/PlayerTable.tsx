@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import type { Position, ValuedPlayer } from '../../engine/types';
 import { POSITIONS } from '../../engine/types';
-import { blendedValue } from '../../engine/values';
+import { blendedRating, blendedVar } from '../../engine/values';
 import { Bar, PositionChip, TextInput, Toggle } from './primitives';
 import { deltaClass, signed, value } from '../format';
 
 export type SortKey =
-  | 'blended'
+  | 'rating'
+  | 'var'
   | 'winNow'
   | 'longTerm'
   | 'timelineGap'
@@ -29,7 +30,18 @@ interface Props {
 }
 
 const COLUMNS: { key: SortKey; label: string; hint?: string; className: string }[] = [
-  { key: 'blended', label: 'Blended', className: 'text-blend-400' },
+  {
+    key: 'rating',
+    label: 'Rating',
+    hint: 'KeepTradeCut market value on a 0-100 scale, blended across the two horizons by the contention slider. Standalone worth: every player carries one, waiver wire included.',
+    className: 'text-blend-400',
+  },
+  {
+    key: 'var',
+    label: 'VAR',
+    hint: 'Value above replacement: rating minus the best player at this position nobody has rostered. Zero is the waiver wire. Negative means the free agent pool already offers better.',
+    className: 'text-ink-200',
+  },
   { key: 'winNow', label: 'Win now', className: 'text-now-400' },
   { key: 'longTerm', label: 'Long term', className: 'text-later-400' },
   {
@@ -51,7 +63,7 @@ export function PlayerTable({
   pageSize = 60,
 }: Props) {
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
-    key: 'blended',
+    key: 'rating',
     desc: true,
   });
   const [query, setQuery] = useState('');
@@ -72,7 +84,11 @@ export function PlayerTable({
       return true;
     });
 
-    const keyed = filtered.map((p) => ({ player: p, blended: blendedValue(p, weight) }));
+    const keyed = filtered.map((p) => ({
+      player: p,
+      rating: blendedRating(p, weight),
+      vor: blendedVar(p, weight),
+    }));
     keyed.sort((a, b) => {
       const direction = sort.desc ? -1 : 1;
       switch (sort.key) {
@@ -81,25 +97,26 @@ export function PlayerTable({
         case 'position':
           return (
             direction * a.player.position.localeCompare(b.player.position) ||
-            b.blended - a.blended
+            b.rating - a.rating
           );
         case 'age':
           return direction * ((a.player.age ?? 99) - (b.player.age ?? 99));
+        case 'var':
+          return direction * (a.vor - b.vor);
         case 'winNow':
-          return direction * (a.player.winNow - b.player.winNow);
+          return direction * (a.player.winNowRating - b.player.winNowRating);
         case 'longTerm':
-          return direction * (a.player.longTerm - b.player.longTerm);
+          return direction * (a.player.longTermRating - b.player.longTermRating);
         case 'timelineGap':
           return direction * (a.player.timelineGap - b.player.timelineGap);
-        case 'blended':
+        case 'rating':
         default:
-          return direction * (a.blended - b.blended);
+          return direction * (a.rating - b.rating);
       }
     });
     return keyed;
   }, [players, positions, ownership, query, sort, weight, userRosterId]);
 
-  const maxBlended = Math.max(1, ...rows.slice(0, 1).map((r) => r.blended));
   const visible = rows.slice(0, limit);
 
   const toggleSort = (key: SortKey) =>
@@ -216,16 +233,24 @@ export function PlayerTable({
                     </td>
                   ) : null}
                   <td className="py-2 pr-3 text-right">
-                    <div className="num font-semibold text-blend-400">{value(row.blended)}</div>
+                    <div className="num font-semibold text-blend-400">{value(row.rating)}</div>
+                    {/* Scaled against the full 0-100 range, not against whoever
+                        happens to top the current filter, so the bar means the
+                        same thing on every screen. */}
                     <Bar
-                      fraction={row.blended / maxBlended}
+                      fraction={row.rating / 100}
                       color="var(--color-blend-500)"
                       className="mt-1 ml-auto w-14"
                     />
                   </td>
-                  <td className="num py-2 pr-3 text-right text-now-400">{value(p.winNow)}</td>
+                  <td className={`num py-2 pr-3 text-right ${deltaClass(row.vor, 0.05)}`}>
+                    {signed(row.vor)}
+                  </td>
+                  <td className="num py-2 pr-3 text-right text-now-400">
+                    {value(p.winNowRating)}
+                  </td>
                   <td className="num py-2 pr-3 text-right text-later-400">
-                    {value(p.longTerm)}
+                    {value(p.longTermRating)}
                   </td>
                   <td className={`num py-2 pr-3 text-right ${deltaClass(p.timelineGap, 0.5)}`}>
                     {signed(p.timelineGap)}

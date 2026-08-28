@@ -125,11 +125,26 @@ export function SettingsView() {
       <Panel>
         <PanelHeader
           title="Ranking source"
-          subtitle="Overall rankings set the cross-position value scale; positional lists supply ordering for quarterback and tight end only. Those two positions never float on their own scale."
+          subtitle="KeepTradeCut publishes crowdsourced market values, not just an ordering, and one cross-positional scale per format. Ratings are used as published; the rank curve is only needed for imported lists that carry ranks alone."
         />
         <div className="space-y-4 p-4 sm:p-5">
-          <Callout tone={rankingSet.id === 'bundled' ? 'warn' : 'good'} title={rankingSet.label}>
+          <Callout tone="good" title={rankingSet.label}>
             {rankingSet.provenance}
+            {rankingSet.id === 'bundled' ? (
+              <>
+                {' '}
+                Values belong to{' '}
+                <a
+                  href="https://keeptradecut.com"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="underline underline-offset-2 hover:text-ink-100"
+                >
+                  keeptradecut.com
+                </a>
+                , captured once per deploy.
+              </>
+            ) : null}
           </Callout>
 
           <div className="grid gap-3 sm:grid-cols-2">
