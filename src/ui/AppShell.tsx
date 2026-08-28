@@ -79,6 +79,20 @@ export function AppShell({ children }: { children: ReactNode }) {
               finish matrix and pick valuation.
             </div>
           )}
+
+          {/* Attribution. The values on every screen are theirs. */}
+          <p className="mt-3 px-1 text-[0.6875rem] leading-relaxed text-ink-500">
+            Player values from{' '}
+            <a
+              href="https://keeptradecut.com"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="focus-ring rounded underline underline-offset-2 hover:text-ink-300"
+            >
+              KeepTradeCut
+            </a>
+            . Leagues from Sleeper.
+          </p>
         </div>
       </aside>
 

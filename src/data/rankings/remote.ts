@@ -1,24 +1,31 @@
 import type { RankingSource } from './types';
 
 /**
- * Automated refresh — deliberately a stub.
+ * Live in-browser refresh — deliberately a stub.
  *
- * Pulling FantasyPros rankings on a schedule requires either their paid data
- * feed or a data partnership. Scraping the public ranking pages is against the
- * source site's terms, so this codebase does not do it, and the switch stays
- * off until a licensed feed is wired in behind this same interface. See
+ * Ranking refresh IS automated, just not from the browser: CI runs
+ * `npm run rankings:build` before every deploy, so each release carries a
+ * current KeepTradeCut board. What cannot happen at runtime is a fetch from the
+ * visitor's browser — KeepTradeCut serves those boards as 1.3MB of HTML with no
+ * `access-control-allow-origin` header, so the request is blocked by CORS
+ * before it starts and would be an expensive way to get the same numbers.
+ *
+ * That leaves this switch off by design rather than by omission. A user who
+ * wants a board newer than the last deploy, or their own, imports one. See
  * DECISIONS.md.
  */
 export const remoteSource: RankingSource = {
   id: 'remote',
-  label: 'Automated refresh',
+  label: 'Live refresh in the browser',
   description:
-    'Needs a licensed FantasyPros feed. Not implemented: scraping the public ranking ' +
-    'pages would violate the source site terms.',
+    'Not available: KeepTradeCut serves its boards as HTML with no CORS header, so a ' +
+    'browser cannot read them. Rankings refresh at build time instead — every deploy ' +
+    'ships a current board — and you can import your own list below at any time.',
   available: false,
   load: async () => {
     throw new Error(
-      'Automated ranking refresh is not enabled. Import a FantasyPros export instead.',
+      'In-browser ranking refresh is not available. Rankings refresh on each deploy; ' +
+        'import a ranking list to override them.',
     );
   },
 };

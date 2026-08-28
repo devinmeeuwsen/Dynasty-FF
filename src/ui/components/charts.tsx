@@ -29,11 +29,14 @@ export function ValueScatter({
 }) {
   const [hovered, setHovered] = useState<ValuedPlayer | null>(null);
 
-  const { points, maxX, maxY } = useMemo(() => {
-    const maxX = Math.max(1, ...players.map((p) => p.longTerm));
-    const maxY = Math.max(1, ...players.map((p) => p.winNow));
-    return { points: players, maxX, maxY };
-  }, [players]);
+  // Plotted on ratings, not value over replacement, and on fixed 0-100 axes.
+  // Against replacement every waiver player collapses onto the origin and the
+  // quadrants stop separating anything; fixed axes also keep a player in the
+  // same spot as filters change.
+  const { points, maxX, maxY } = useMemo(
+    () => ({ points: players, maxX: 100, maxY: 100 }),
+    [players],
+  );
 
   const W = 100;
   const H = 100;
@@ -97,8 +100,8 @@ export function ValueScatter({
         </text>
 
         {points.map((p) => {
-          const cx = (p.longTerm / maxX) * W;
-          const cy = H - (p.winNow / maxY) * H;
+          const cx = (p.longTermRating / maxX) * W;
+          const cy = H - (p.winNowRating / maxY) * H;
           const isHighlighted = highlight?.has(p.id);
           const r = isHighlighted ? 1.9 : 1.15;
           return (
@@ -124,9 +127,9 @@ export function ValueScatter({
         <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-lg border border-white/10 bg-ink-950/95 px-3 py-2 text-center shadow-xl backdrop-blur">
           <div className="text-[0.8125rem] font-semibold text-ink-100">{hovered.name}</div>
           <div className="num mt-0.5 text-[0.75rem] text-ink-400">
-            <span className="text-now-400">{value(hovered.winNow)} now</span>
+            <span className="text-now-400">{value(hovered.winNowRating)} now</span>
             {' · '}
-            <span className="text-later-400">{value(hovered.longTerm)} later</span>
+            <span className="text-later-400">{value(hovered.longTermRating)} later</span>
           </div>
         </div>
       ) : null}

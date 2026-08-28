@@ -30,10 +30,20 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Once against the committed data, so a failure here means the code
+      # broke rather than an upstream source changing shape under us.
       - run: npm test
-      # Refresh the shipped player pool so each deploy carries current players.
-      # Non-fatal: if Sleeper is unreachable the committed pool is used instead.
+      # Refresh the shipped data so each deploy carries current players and a
+      # current KeepTradeCut board. Both are non-fatal: if a source is
+      # unreachable the committed snapshot is used instead, and the build still
+      # produces a working site with slightly staler numbers.
       - run: npm run players:build || echo "using committed player pool"
+      - run: npm run rankings:build || echo "using committed ranking snapshot"
+      # Re-run the suite against whatever those two just wrote. The snapshot
+      # tests assert board depth, the superflex quarterback premium and clean
+      # name matching, so a source that changes shape fails here rather than
+      # shipping wrong numbers.
+      - run: npm test
       - run: npm run build
       # One-time setup: Settings -> Pages -> Source: "GitHub Actions".
       # `enablement: true` is deliberately not used here — the workflow's

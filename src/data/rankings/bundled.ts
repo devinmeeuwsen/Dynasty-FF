@@ -2,39 +2,50 @@ import type { Position } from '../../engine/types';
 import type { RankingList, RankingSet, RankingSource } from './types';
 import snapshot from './snapshots/bundled.json';
 
-type PlayerRow = [name: string, position: string, team: string | null, age: number];
+type PlayerRow = [name: string, position: string, team: string | null, age: number | null];
 
+/**
+ * Snapshot format 2: KeepTradeCut market values.
+ *
+ * Boards carry [playerKey, rating] pairs on a 0-100 scale rather than a bare
+ * ordering. The keys are KeepTradeCut mflids and are NOT Sleeper ids, so
+ * entries deliberately omit `sleeperId` and go through name matching.
+ */
 interface Snapshot {
   version: number;
+  source: string;
   asOf: string;
   provenance: string;
+  attribution: { name: string; url: string };
   players: Record<string, PlayerRow>;
-  lists: Record<string, string[]>;
+  boards: Record<string, [key: string, rating: number][]>;
 }
 
 const data = snapshot as unknown as Snapshot;
 
-function toList(
+function toBoard(
   key: string,
   horizon: RankingList['horizon'],
-  scope: RankingList['scope'],
   format: RankingList['format'],
 ): RankingList | null {
-  const ids = data.lists[key];
-  if (!ids) return null;
+  const board = data.boards[key];
+  if (!board) return null;
   return {
     horizon,
-    scope,
+    // KeepTradeCut publishes one cross-positional scale per format, so the
+    // overall board is the whole story: there are no positional lists to
+    // reconcile against it.
+    scope: 'overall',
     format,
-    entries: ids.map((id, index) => {
-      const [name, position, team, age] = data.players[id];
+    entries: board.map(([playerKey, rating], index) => {
+      const [name, position, team, age] = data.players[playerKey];
       return {
         name,
         position: position as Position,
         team,
         age,
         rank: index + 1,
-        sleeperId: id,
+        rating,
       };
     }),
   };
@@ -42,23 +53,15 @@ function toList(
 
 export function bundledRankingSet(): RankingSet {
   const lists = [
-    toList('redraft.overall.standard', 'redraft', 'overall', 'standard'),
-    toList('redraft.overall.superflex', 'redraft', 'overall', 'superflex'),
-    toList('dynasty.overall.standard', 'dynasty', 'overall', 'standard'),
-    toList('dynasty.overall.superflex', 'dynasty', 'overall', 'superflex'),
-    toList('redraft.QB', 'redraft', 'QB', 'standard'),
-    toList('redraft.QB', 'redraft', 'QB', 'superflex'),
-    toList('redraft.TE', 'redraft', 'TE', 'standard'),
-    toList('redraft.TE', 'redraft', 'TE', 'superflex'),
-    toList('dynasty.QB', 'dynasty', 'QB', 'standard'),
-    toList('dynasty.QB', 'dynasty', 'QB', 'superflex'),
-    toList('dynasty.TE', 'dynasty', 'TE', 'standard'),
-    toList('dynasty.TE', 'dynasty', 'TE', 'superflex'),
+    toBoard('redraft.standard', 'redraft', 'standard'),
+    toBoard('redraft.superflex', 'redraft', 'superflex'),
+    toBoard('dynasty.standard', 'dynasty', 'standard'),
+    toBoard('dynasty.superflex', 'dynasty', 'superflex'),
   ].filter(Boolean) as RankingList[];
 
   return {
     id: 'bundled',
-    label: `Bundled snapshot · ${data.asOf}`,
+    label: `${data.attribution.name} · ${data.asOf}`,
     asOf: data.asOf,
     provenance: data.provenance,
     lists,
@@ -67,10 +70,11 @@ export function bundledRankingSet(): RankingSet {
 
 export const bundledSource: RankingSource = {
   id: 'bundled',
-  label: 'Bundled snapshot',
+  label: `${data.attribution.name} market values`,
   description:
-    'Ships with the app so it works out of the box. Approximated from public data, ' +
-    'not a copy of any subscription ranking product.',
+    'Crowdsourced dynasty and redraft values from KeepTradeCut, rescaled to 0-100. ' +
+    'Captured at build time and shipped with the app, so the site works out of the box ' +
+    'and a visit costs KeepTradeCut nothing.',
   available: true,
   load: async () => bundledRankingSet(),
 };

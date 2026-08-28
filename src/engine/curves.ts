@@ -23,6 +23,11 @@ export interface RankInput {
   overallRank: number | null;
   /** 1-based rank inside the positional list. Null when absent. */
   positionRank: number | null;
+  /**
+   * 0-100 market value, when the source publishes one. Present for every ranked
+   * player or for none of them, never a mix within one source.
+   */
+  rating?: number | null;
 }
 
 /** Positions whose ordering comes from a positional list rather than overall. */
@@ -37,10 +42,56 @@ export interface PositionalCurves {
   overallCount: number;
 }
 
+/**
+ * When the source publishes values, use them.
+ *
+ * A rating already states cross-positional worth, which is exactly what the
+ * rank→curve→reorder machinery below exists to reconstruct from an ordering.
+ * Reconstructing it from the ordering that the ratings themselves imply would
+ * throw away the gaps between players and replace them with an assumed decay,
+ * so this path is not an optimisation, it is the more faithful one.
+ *
+ * Unranked players sit below the whole board on a short decaying tail, the same
+ * treatment they get on the curve path, so they land under replacement level by
+ * construction rather than by a special case.
+ */
+function directValueCurves(players: RankInput[]): Map<string, number> {
+  const values = new Map<string, number>();
+  const floor = players.reduce(
+    (min, p) => (p.rating != null && p.rating > 0 && p.rating < min ? p.rating : min),
+    Infinity,
+  );
+  const tailStart = Number.isFinite(floor) ? floor : 1;
+
+  for (const pos of POSITIONS) {
+    const group = players.filter((p) => p.position === pos);
+    const unranked = group.filter((p) => p.rating == null).sort(cmpPositionRank);
+    for (const p of group) if (p.rating != null) values.set(p.id, p.rating);
+    // Geometric tail below the cheapest rated player, so ordering stays stable
+    // and nothing unranked can outrank someone the market actually priced.
+    unranked.forEach((p, i) => values.set(p.id, tailStart * Math.pow(0.85, i + 1)));
+  }
+  return values;
+}
+
 export function buildPositionalCurves(
   players: RankInput[],
   curve: RankToValue,
 ): PositionalCurves {
+  const rated = players.some((p) => p.rating != null);
+  if (rated) {
+    const values = directValueCurves(players);
+    const byPosition = {} as Record<Position, { id: string; value: number }[]>;
+    for (const pos of POSITIONS) {
+      byPosition[pos] = players
+        .filter((p) => p.position === pos)
+        .map((p) => ({ id: p.id, value: values.get(p.id) ?? 0 }))
+        .sort((a, b) => b.value - a.value);
+    }
+    const count = players.filter((p) => p.rating != null).length;
+    return { values, byPosition, overallCount: count };
+  }
+
   const overallCount = players.reduce(
     (max, p) => (p.overallRank != null && p.overallRank > max ? p.overallRank : max),
     0,

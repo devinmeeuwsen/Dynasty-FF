@@ -51,11 +51,14 @@ type RankField =
   | 'dynastyPositionRank'
   | 'redraftPositionRank';
 
+type RatingField = 'dynastyRating' | 'redraftRating';
+
 export function assemblePlayers(input: AssembleInput): AssembleResult {
   const overrides = input.overrides ?? new Map<string, string>();
   const byId = new Map(input.pool.map((p) => [p.id, p]));
 
   const ranks = new Map<string, Partial<Record<RankField, number>>>();
+  const ratings = new Map<string, Partial<Record<RatingField, number>>>();
   const unmatchedByName = new Map<string, UnmatchedEntry>();
   const fuzzy: AssembleResult['fuzzy'] = [];
 
@@ -64,6 +67,7 @@ export function assemblePlayers(input: AssembleInput): AssembleResult {
     scope: 'overall' | Position,
     horizon: 'dynasty' | 'redraft',
     field: RankField,
+    ratingField?: RatingField,
   ): number => {
     const list = findList(input.set, horizon, scope, input.format);
     if (!list) return 0;
@@ -89,12 +93,26 @@ export function assemblePlayers(input: AssembleInput): AssembleResult {
         current[field] = entry.rank;
       }
       ranks.set(id, current);
+
+      // Values, where the source publishes them, come only from the overall
+      // board — a positional list would restate the same number.
+      if (ratingField && entry.rating != null && scope === 'overall') {
+        const held = ratings.get(id) ?? {};
+        if (held[ratingField] == null || entry.rating > (held[ratingField] as number)) {
+          held[ratingField] = entry.rating;
+        }
+        ratings.set(id, held);
+      }
     }
     return matchedCount;
   };
 
-  const dynastyOverall = apply('dynasty overall', 'overall', 'dynasty', 'dynastyOverallRank');
-  const redraftOverall = apply('redraft overall', 'overall', 'redraft', 'redraftOverallRank');
+  const dynastyOverall = apply(
+    'dynasty overall', 'overall', 'dynasty', 'dynastyOverallRank', 'dynastyRating',
+  );
+  const redraftOverall = apply(
+    'redraft overall', 'overall', 'redraft', 'redraftOverallRank', 'redraftRating',
+  );
 
   const dynastyPositional: Partial<Record<Position, number>> = {};
   const redraftPositional: Partial<Record<Position, number>> = {};
@@ -113,6 +131,7 @@ export function assemblePlayers(input: AssembleInput): AssembleResult {
   fillPositionalFromOverall(ranks, byId, 'redraftOverallRank', 'redraftPositionRank');
 
   const ids = new Set<string>(ranks.keys());
+  for (const id of ratings.keys()) ids.add(id);
   for (const id of input.required ?? []) if (byId.has(id)) ids.add(id);
 
   const players: EnginePlayer[] = [];
@@ -130,6 +149,8 @@ export function assemblePlayers(input: AssembleInput): AssembleResult {
       redraftOverallRank: r.redraftOverallRank ?? null,
       dynastyPositionRank: r.dynastyPositionRank ?? null,
       redraftPositionRank: r.redraftPositionRank ?? null,
+      dynastyRating: ratings.get(id)?.dynastyRating ?? null,
+      redraftRating: ratings.get(id)?.redraftRating ?? null,
     });
   }
 
