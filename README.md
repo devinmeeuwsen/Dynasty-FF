@@ -34,7 +34,12 @@ visitor's browser. Hosting is the only infrastructure required.
 
 The repository is public, so **GitHub Pages is free** and is wired up in
 `.github/workflows/deploy.yml`: every push to `main` runs the tests, refreshes
-the player pool, builds, and publishes to
+the player pool, builds, and publishes.
+
+**One-time setup:** Settings → Pages → Source: **GitHub Actions**. This cannot be
+automated — a workflow's `GITHUB_TOKEN` may deploy to Pages but may not create
+the Pages site, so the first enable is a manual click. After that every push
+deploys on its own. The site lands at
 
     https://devinmeeuwsen.github.io/Dynasty-FF/
 
