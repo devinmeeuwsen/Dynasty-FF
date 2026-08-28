@@ -23,6 +23,23 @@ and your draft pick holdings.
 accumulating assets that improve future championship odds. The default payout structure
 is winner-take-all (configurable for leagues that pay 2nd/3rd).
 
+## Getting your Sleeper league in
+
+Sleeper's API is public, needs no key, and sends `access-control-allow-origin: *`,
+so the browser can call it directly — there is no backend and no proxy anywhere in
+this project. Two ways to run it:
+
+- **Locally:** `npm install && npm run dev`, then enter your Sleeper username and
+  pick a league.
+- **Hosted:** pushing to `main` (or this feature branch) builds and publishes to
+  GitHub Pages via `.github/workflows/deploy.yml`. Enable it once under
+  **Settings → Pages → Source: GitHub Actions**, and the deployed URL works the
+  same way — useful on a phone, which is where most fantasy football happens.
+
+Note that a claude.ai Artifact **cannot** do this: that sandbox blocks network
+calls to any non-allowlisted host, so the companion artifact uses paste-import
+instead. That is a restriction of the artifact sandbox, not of this application.
+
 ## Running it
 
 ```bash
