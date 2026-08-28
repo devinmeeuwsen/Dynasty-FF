@@ -30,11 +30,20 @@ so the browser calls it directly. **This project needs no backend, no database a
 no server** — it is a static site plus a calculation engine that runs in the
 visitor's browser. Hosting is the only infrastructure required.
 
-### Free hosting options
+### Hosting
 
-Any static host works. All three below have free tiers that support **private**
-repositories, build straight from this repo, and give you HTTPS and a custom
-domain at no cost:
+The repository is public, so **GitHub Pages is free** and is wired up in
+`.github/workflows/deploy.yml`: every push to `main` runs the tests, refreshes
+the player pool, builds, and publishes to
+
+    https://devinmeeuwsen.github.io/Dynasty-FF/
+
+Nothing else is required — no backend, no database, no server.
+
+#### Alternatives
+
+Any static host works, and these have free tiers that also cover private
+repositories should this one ever go private again:
 
 | Host | Free tier | Notes |
 |---|---|---|
@@ -54,9 +63,9 @@ No account linking at all? `npm run build` locally and drag the `dist/` folder
 onto <https://app.netlify.com/drop>. CI also uploads `dist` as a downloadable
 `site` artifact on every push.
 
-**GitHub Pages is not used here.** It requires a paid plan on private
-repositories — enabling it fails with `Resource not accessible by integration`.
-Everything this app needs is available free elsewhere.
+Note that GitHub Pages is free only on public repositories; on a private one it
+requires a paid plan, and enabling it fails with `Resource not accessible by
+integration`. Every host above is free either way.
 
 ### Running it locally
 
