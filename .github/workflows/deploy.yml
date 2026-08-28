@@ -33,13 +33,20 @@ jobs:
       # Non-fatal: if Sleeper is unreachable the committed pool is used instead.
       - run: npm run players:build || echo "using committed player pool"
       - run: npm run build
+      # `enablement` turns Pages on via the API if it is not already, which
+      # removes the chicken-and-egg where the first run cannot find a Pages site.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
+  # Build and test run on every branch; only the default branch publishes, since
+  # the github-pages environment restricts deployments to it.
   deploy:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
