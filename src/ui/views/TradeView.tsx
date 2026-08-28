@@ -7,6 +7,7 @@ import { useTeamName } from '../useTeamName';
 import { ContentionSlider } from '../components/ContentionSlider';
 import { FinishMatrixHeatmap } from '../components/FinishMatrix';
 import { PlayerTable } from '../components/PlayerTable';
+import { blendedVar } from '../../engine/values';
 import {
   Button,
   Callout,
@@ -192,18 +193,25 @@ function SideBuilder({
 
       {selectedPlayers.length + selectedPicks.length > 0 ? (
         <ul className="flex flex-wrap gap-1.5 border-b border-white/[0.06] px-4 py-3 sm:px-5">
-          {selectedPlayers.map((p) => (
-            <li key={p.id}>
-              <button
-                onClick={() => onChange({ ...side, players: toggle(side.players, p.id) })}
-                className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] py-1 pl-1.5 pr-2 text-[0.75rem] text-ink-100 transition hover:border-bad-500/40"
-              >
-                <PositionChip position={p.position} />
-                {p.name}
-                <span className="text-ink-500">×</span>
-              </button>
-            </li>
-          ))}
+          {selectedPlayers.map((p) => {
+            const vor = blendedVar(p, weight);
+            return (
+              <li key={p.id}>
+                <button
+                  onClick={() => onChange({ ...side, players: toggle(side.players, p.id) })}
+                  title={`Value over replacement at this timeline: ${signed(vor)}`}
+                  className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] py-1 pl-1.5 pr-2 text-[0.75rem] text-ink-100 transition hover:border-bad-500/40"
+                >
+                  <PositionChip position={p.position} />
+                  {p.name}
+                  {/* The column the table gave up, returned where it matters:
+                      what this specific player is worth over the wire. */}
+                  <span className={`num ${deltaClass(vor, 0.05)}`}>{signed(vor)}</span>
+                  <span className="text-ink-500">×</span>
+                </button>
+              </li>
+            );
+          })}
           {selectedPicks.map((pick) => (
             <li key={pickKey(pick)}>
               <button
@@ -238,6 +246,11 @@ function SideBuilder({
             teamName={teamName}
             showOwner={false}
             pageSize={40}
+            // Half-width panel: five metric columns pushed the Add button past
+            // the right edge. Rating and the two horizons are what a trade is
+            // built on; value over replacement comes back per player below,
+            // once one is actually selected.
+            metrics={['rating', 'winNow', 'longTerm']}
             rowAction={(player) => (
               <Button
                 size="sm"

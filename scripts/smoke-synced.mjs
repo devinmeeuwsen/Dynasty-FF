@@ -209,6 +209,36 @@ for (const [tab, file] of [['Players','pr-players'],['Matrix','pr-matrix'],['Tra
   console.log(`  ${tab}: ${txt.length} chars`);
   await page.screenshot({ path: path.join(OUT, `${file}.png`), fullPage: false });
 }
+// A row action pushed past its scroll container is invisible AND unclickable,
+// which is how the trade builder shipped unusable: the Add button was there,
+// just past the right edge of a half-width panel. Rendering is not enough to
+// assert — the control has to be reachable.
+await page.locator('aside button', { hasText: /^Trade/i }).first().click();
+await page.waitForTimeout(2500);
+const addButtons = page.locator('table tbody tr button', { hasText: /^(Add|In)$/ });
+if ((await addButtons.count()) === 0) {
+  errs.push('trade builder: no Add button rendered');
+} else {
+  const box = await addButtons.first().boundingBox();
+  const edge = await page
+    .locator('table')
+    .first()
+    .evaluate((t) => t.closest('.overflow-x-auto').getBoundingClientRect().right);
+  if (!box || box.x + box.width > edge + 0.5) {
+    errs.push(
+      `trade builder: Add button is clipped (ends at ${box ? (box.x + box.width).toFixed(0) : '?'}px, ` +
+        `panel edge ${edge.toFixed(0)}px) — trim a column or widen the panel`,
+    );
+  } else {
+    await addButtons.first().click();
+    await page.waitForTimeout(500);
+    const chip = (await page.locator('ul li button').first().innerText()).replace(/\s+/g, ' ');
+    if (!/[+\u2212-]\d/.test(chip)) {
+      errs.push(`trade builder: selected chip shows no value over replacement (${chip})`);
+    }
+  }
+}
+
 await page.locator('aside button', { hasText: /^Matrix/i }).first().click();
 await page.waitForTimeout(2000);
 await page.screenshot({ path: path.join(OUT, 'matrix-full.png'), fullPage: true });

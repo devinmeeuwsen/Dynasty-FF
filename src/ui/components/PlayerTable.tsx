@@ -27,6 +27,12 @@ interface Props {
   initialOwnership?: OwnershipFilter;
   showOwner?: boolean;
   pageSize?: number;
+  /**
+   * Which metric columns to show. Narrow contexts trim this: the trade builder
+   * lives in a half-width panel, and carrying all five pushed the row's Add
+   * button off the edge — the one control the screen exists for.
+   */
+  metrics?: SortKey[];
 }
 
 const COLUMNS: { key: SortKey; label: string; hint?: string; className: string }[] = [
@@ -61,9 +67,18 @@ export function PlayerTable({
   initialOwnership = 'all',
   showOwner = true,
   pageSize = 60,
+  metrics,
 }: Props) {
+  const shown = metrics
+    ? COLUMNS.filter((c) => metrics.includes(c.key))
+    : COLUMNS;
+
+  // Grow the scroll floor with the columns actually rendered rather than
+  // pinning it at the widest case, so a trimmed table stops overflowing
+  // instead of merely scrolling further.
+  const minWidth = `${(showOwner ? 15 : 10) + shown.length * 4.6 + (rowAction ? 4 : 0)}rem`;
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
-    key: 'rating',
+    key: metrics && !metrics.includes('rating') ? metrics[0] : 'rating',
     desc: true,
   });
   const [query, setQuery] = useState('');
@@ -168,7 +183,7 @@ export function PlayerTable({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[38rem] text-left text-[0.8125rem]">
+        <table className="w-full text-left text-[0.8125rem]" style={{ minWidth }}>
           <thead className="text-[0.6875rem] uppercase tracking-[0.08em] text-ink-400">
             <tr className="border-b border-white/[0.06]">
               <th className="w-10 py-2 pl-4 font-medium sm:pl-5">#</th>
@@ -180,7 +195,7 @@ export function PlayerTable({
                 className="min-w-[10rem]"
               />
               {showOwner ? <th className="px-2 py-2 font-medium">Owner</th> : null}
-              {COLUMNS.map((column) => (
+              {shown.map((column) => (
                 <SortableHeader
                   key={column.key}
                   label={column.label}
@@ -232,29 +247,60 @@ export function PlayerTable({
                       )}
                     </td>
                   ) : null}
-                  <td className="py-2 pr-3 text-right">
-                    <div className="num font-semibold text-blend-400">{value(row.rating)}</div>
-                    {/* Scaled against the full 0-100 range, not against whoever
-                        happens to top the current filter, so the bar means the
-                        same thing on every screen. */}
-                    <Bar
-                      fraction={row.rating / 100}
-                      color="var(--color-blend-500)"
-                      className="mt-1 ml-auto w-14"
-                    />
-                  </td>
-                  <td className={`num py-2 pr-3 text-right ${deltaClass(row.vor, 0.05)}`}>
-                    {signed(row.vor)}
-                  </td>
-                  <td className="num py-2 pr-3 text-right text-now-400">
-                    {value(p.winNowRating)}
-                  </td>
-                  <td className="num py-2 pr-3 text-right text-later-400">
-                    {value(p.longTermRating)}
-                  </td>
-                  <td className={`num py-2 pr-3 text-right ${deltaClass(p.timelineGap, 0.5)}`}>
-                    {signed(p.timelineGap)}
-                  </td>
+                  {/* Driven off the same list as the headers, so a trimmed
+                      table can never shift its values into the wrong column. */}
+                  {shown.map((column) => {
+                    switch (column.key) {
+                      case 'rating':
+                        return (
+                          <td key={column.key} className="py-2 pr-3 text-right">
+                            <div className="num font-semibold text-blend-400">
+                              {value(row.rating)}
+                            </div>
+                            {/* Scaled against the full 0-100 range, not against
+                                whoever tops the current filter, so the bar means
+                                the same thing on every screen. */}
+                            <Bar
+                              fraction={row.rating / 100}
+                              color="var(--color-blend-500)"
+                              className="mt-1 ml-auto w-14"
+                            />
+                          </td>
+                        );
+                      case 'var':
+                        return (
+                          <td
+                            key={column.key}
+                            className={`num py-2 pr-3 text-right ${deltaClass(row.vor, 0.05)}`}
+                          >
+                            {signed(row.vor)}
+                          </td>
+                        );
+                      case 'winNow':
+                        return (
+                          <td key={column.key} className="num py-2 pr-3 text-right text-now-400">
+                            {value(p.winNowRating)}
+                          </td>
+                        );
+                      case 'longTerm':
+                        return (
+                          <td key={column.key} className="num py-2 pr-3 text-right text-later-400">
+                            {value(p.longTermRating)}
+                          </td>
+                        );
+                      case 'timelineGap':
+                        return (
+                          <td
+                            key={column.key}
+                            className={`num py-2 pr-3 text-right ${deltaClass(p.timelineGap, 0.5)}`}
+                          >
+                            {signed(p.timelineGap)}
+                          </td>
+                        );
+                      default:
+                        return null;
+                    }
+                  })}
                   {rowAction ? (
                     <td className="py-2 pr-4 text-right sm:pr-5">{rowAction(p)}</td>
                   ) : null}
