@@ -1,0 +1,35 @@
+# Tests and a production build on every push. Deployment is handled by whichever
+# static host is connected to this repo (Cloudflare Pages, Netlify, Vercel — all
+# of which build from source themselves), so there is no deploy step here.
+#
+# GitHub Pages is deliberately not used: it requires a paid plan on private
+# repositories, and this project needs nothing GitHub Pages offers that a free
+# static host does not.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # Refresh the shipped player pool so a deploy carries current players.
+      # Non-fatal: if Sleeper is unreachable the committed pool is used instead.
+      - run: npm run players:build || echo "using committed player pool"
+      - run: npm run build
+      # Downloadable so the site can be published by drag-and-drop with no
+      # account linking at all.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: dist

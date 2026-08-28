@@ -1,0 +1,278 @@
+@import 'tailwindcss';
+
+/*
+ * Design language: a dense analytics surface. Near-black ground with a slow
+ * indigo bloom, hairline-bordered glass panels, and three signal colours that
+ * mean exactly one thing each throughout the app — amber is always win now,
+ * teal is always long term, violet is always the blend the user has chosen.
+ */
+
+@theme {
+  --color-ink-950: #06060b;
+  --color-ink-900: #0a0a12;
+  --color-ink-850: #0e0e18;
+  --color-ink-800: #13131f;
+  --color-ink-700: #1c1c2b;
+  --color-ink-600: #2a2a3d;
+  --color-ink-500: #3d3d55;
+  --color-ink-400: #6a6a85;
+  --color-ink-300: #9797ad;
+  --color-ink-200: #c4c4d4;
+  --color-ink-100: #e8e8f0;
+
+  --color-now-400: #ffb069;
+  --color-now-500: #ff9f45;
+  --color-now-600: #f07f14;
+
+  --color-later-400: #5ee6e0;
+  --color-later-500: #2fd3cd;
+  --color-later-600: #14a8a3;
+
+  --color-blend-400: #a596ff;
+  --color-blend-500: #8b7cff;
+  --color-blend-600: #6a56f5;
+
+  --color-good-500: #34d399;
+  --color-bad-500: #fb7185;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius-panel: 1rem;
+}
+
+@layer base {
+  * {
+    border-color: color-mix(in oklab, var(--color-ink-100) 8%, transparent);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background-color: var(--color-ink-950);
+    color: var(--color-ink-100);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* The bloom. Fixed so it never scrolls away, and cheap: two radial gradients. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(80rem 45rem at 12% -10%, rgba(106, 86, 245, 0.18), transparent 60%),
+      radial-gradient(60rem 40rem at 105% 8%, rgba(20, 168, 163, 0.12), transparent 62%),
+      radial-gradient(50rem 40rem at 45% 115%, rgba(240, 127, 20, 0.08), transparent 60%);
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-blend-500) 40%, transparent);
+  }
+
+  /* Slim scrollbars so dense tables do not look chunky. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-ink-600);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-500);
+    background-clip: content-box;
+  }
+
+  input,
+  select,
+  button,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@utility panel {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-ink-800) 82%, transparent),
+    color-mix(in oklab, var(--color-ink-900) 88%, transparent)
+  );
+  border: 1px solid color-mix(in oklab, var(--color-ink-100) 8%, transparent);
+  border-radius: var(--radius-panel);
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 1px 0 0 color-mix(in oklab, var(--color-ink-100) 5%, transparent) inset,
+    0 24px 60px -30px rgb(0 0 0 / 0.9);
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+@utility hairline {
+  border-color: color-mix(in oklab, var(--color-ink-100) 8%, transparent);
+}
+
+@utility focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  &:focus-visible {
+    outline-color: var(--color-blend-500);
+  }
+}
+
+/* The contention slider gets a bespoke track: a gradient from teal to amber
+   that reads as a timeline from rebuild to contend. */
+.timeline-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 2.25rem;
+  background: transparent;
+  cursor: grab;
+}
+.timeline-slider:active {
+  cursor: grabbing;
+}
+.timeline-slider::-webkit-slider-runnable-track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--color-later-500) 0%,
+    var(--color-blend-500) 50%,
+    var(--color-now-500) 100%
+  );
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-ink-100) 10%, transparent) inset;
+}
+.timeline-slider::-moz-range-track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--color-later-500) 0%,
+    var(--color-blend-500) 50%,
+    var(--color-now-500) 100%
+  );
+}
+.timeline-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-top: -0.5rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 3px solid var(--color-ink-900);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.6);
+  transition: transform 120ms ease;
+}
+.timeline-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.08);
+}
+.timeline-slider::-moz-range-thumb {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 3px solid var(--color-ink-900);
+}
+
+.range-slim {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 1.25rem;
+  background: transparent;
+}
+.range-slim::-webkit-slider-runnable-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: var(--color-ink-600);
+}
+.range-slim::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-top: -0.3125rem;
+  border-radius: 999px;
+  background: var(--color-blend-400);
+}
+.range-slim::-moz-range-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: var(--color-ink-600);
+}
+.range-slim::-moz-range-thumb {
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-blend-400);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-rise {
+  animation: rise 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-ink-100) 8%, transparent),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
