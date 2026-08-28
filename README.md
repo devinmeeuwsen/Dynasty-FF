@@ -26,19 +26,45 @@ is winner-take-all (configurable for leagues that pay 2nd/3rd).
 ## Getting your Sleeper league in
 
 Sleeper's API is public, needs no key, and sends `access-control-allow-origin: *`,
-so the browser can call it directly — there is no backend and no proxy anywhere in
-this project. Two ways to run it:
+so the browser calls it directly. **This project needs no backend, no database and
+no server** — it is a static site plus a calculation engine that runs in the
+visitor's browser. Hosting is the only infrastructure required.
 
-- **Locally:** `npm install && npm run dev`, then enter your Sleeper username and
-  pick a league.
-- **Hosted:** pushing to `main` (or this feature branch) builds and publishes to
-  GitHub Pages via `.github/workflows/deploy.yml`. Enable it once under
-  **Settings → Pages → Source: GitHub Actions**, and the deployed URL works the
-  same way — useful on a phone, which is where most fantasy football happens.
+### Free hosting options
 
-Note that a claude.ai Artifact **cannot** do this: that sandbox blocks network
-calls to any non-allowlisted host, so the companion artifact uses paste-import
-instead. That is a restriction of the artifact sandbox, not of this application.
+Any static host works. All three below have free tiers that support **private**
+repositories, build straight from this repo, and give you HTTPS and a custom
+domain at no cost:
+
+| Host | Free tier | Notes |
+|---|---|---|
+| **Cloudflare Pages** | unlimited sites, 500 builds/month, unmetered bandwidth | recommended; private repos included |
+| **Netlify** | 100GB bandwidth, 300 build-minutes/month | `netlify.toml` in this repo preconfigures it |
+| **Vercel** | hobby tier | `vercel.json` in this repo preconfigures it; hobby is non-commercial |
+
+Connect the repo and use:
+
+```
+build command:      npm run build
+output directory:   dist
+node version:       22
+```
+
+No account linking at all? `npm run build` locally and drag the `dist/` folder
+onto <https://app.netlify.com/drop>. CI also uploads `dist` as a downloadable
+`site` artifact on every push.
+
+**GitHub Pages is not used here.** It requires a paid plan on private
+repositories — enabling it fails with `Resource not accessible by integration`.
+Everything this app needs is available free elsewhere.
+
+### Running it locally
+
+`npm install && npm run dev`, then enter your Sleeper username and pick a league.
+
+A claude.ai Artifact **cannot** do the live lookup: that sandbox blocks network
+calls to any non-allowlisted host, which is why the companion artifact uses
+paste-import. That is a restriction of the artifact sandbox, not of this app.
 
 ## Running it
 
