@@ -1,6 +1,7 @@
 import type { DraftPick, FinishMatrix, TeamRoster, ValuedPlayer } from './types';
 import { pickKey } from './picks';
 import { evaluateScenario, type Scenario, type ScenarioInput } from './scenario';
+import { bestFreeAgents, rosterSpotEffect, type RosterSpotEffect } from './rosterSpots';
 
 /**
  * The trade calculator.
@@ -41,6 +42,15 @@ export interface PickCapitalChange {
 
 export interface TradeSideResult {
   rosterId: number;
+  /**
+   * Change in this season's team strength, in value units: starting lineup
+   * plus the backup line. The championship number below is what this buys;
+   * this is the thing itself, and it is on the same scale as long term value,
+   * which is what makes the two comparable on one scale.
+   */
+  strengthDelta: number;
+  /** Cuts forced by the roster limit, and free agents the freed spots hold. */
+  rosterSpots: RosterSpotEffect;
   /** Change in expected payout, read from the finish matrix. */
   payoutDelta: number;
   /** Under winner take all this is exactly the change in championship odds. */
@@ -137,9 +147,11 @@ function sideResult(
   side: TradeSide,
   other: TradeSide,
   base: ScenarioInput,
+  afterRosters: TeamRoster[],
   afterPicks: DraftPick[],
   before: Scenario,
   after: Scenario,
+  freeAgents: ValuedPlayer[],
 ): TradeSideResult {
   const value = (id: string) => base.values.get(id);
   const playersOut = side.players.map(value).filter(Boolean) as ValuedPlayer[];
@@ -185,8 +197,27 @@ function sideResult(
     .filter(Boolean) as DraftPick[];
   const picksIn = other.picks.map((k) => beforeByKey.get(k)).filter(Boolean) as DraftPick[];
 
+  const baselineSize =
+    base.rosters.find((r) => r.rosterId === side.rosterId)?.playerIds.length ?? 0;
+  const afterRoster = (
+    afterRosters.find((r) => r.rosterId === side.rosterId)?.playerIds ?? []
+  )
+    .map(value)
+    .filter(Boolean) as ValuedPlayer[];
+  const rosterSpots = rosterSpotEffect(
+    afterRoster,
+    base.shape,
+    playersIn.length - playersOut.length,
+    freeAgents,
+    baselineSize,
+  );
+
   return {
     rosterId: side.rosterId,
+    strengthDelta:
+      (after.strengths.get(side.rosterId) ?? 0) -
+      (before.strengths.get(side.rosterId) ?? 0),
+    rosterSpots,
     payoutDelta:
       (after.payouts.get(side.rosterId) ?? 0) - (before.payouts.get(side.rosterId) ?? 0),
     championshipDelta:
@@ -278,6 +309,44 @@ export function assessDeadZone(
   };
 }
 
+/**
+ * What one side gains, in its own currency.
+ *
+ * The scale in the interface is built on this, and the reason it takes a
+ * weight per side rather than one for the trade is the whole premise: a
+ * contender and a rebuilder can both come out ahead of the same deal, because
+ * they are not buying the same thing. Weighting each side by ITS OWN posture is
+ * what lets both bars be green without either number being fudged.
+ *
+ * The two components are on one scale already — this season's strength and
+ * long term value are both value above replacement — so the blend is a real
+ * quantity rather than an index. Roster spots land in both: a forced cut costs
+ * strength now and an asset later.
+ */
+export interface SideGain {
+  rosterId: number;
+  /** This season: lineup and backups, after any cut the roster limit forces. */
+  winNow: number;
+  /** Everything after it: players, picks, and assets released to fit. */
+  future: number;
+  weight: number;
+  /** weight * winNow + (1 - weight) * future. */
+  gained: number;
+}
+
+export function sideGain(side: TradeSideResult, weight: number): SideGain {
+  const winNow = side.strengthDelta + side.rosterSpots.strengthDelta;
+  const future =
+    side.longTermDelta + side.draftCapitalDelta + side.rosterSpots.assetDelta;
+  return {
+    rosterId: side.rosterId,
+    winNow,
+    future,
+    weight,
+    gained: weight * winNow + (1 - weight) * future,
+  };
+}
+
 export function evaluateTrade(
   base: ScenarioInput,
   proposal: TradeProposal,
@@ -291,8 +360,15 @@ export function evaluateTrade(
     picks: applied.picks,
   });
 
-  const sideA = sideResult(proposal.a, proposal.b, base, applied.picks, before, after);
-  const sideB = sideResult(proposal.b, proposal.a, base, applied.picks, before, after);
+  const freeAgents = bestFreeAgents(
+    [...base.values.values()].filter((v) => v.ownerRosterId == null),
+  );
+  const sideA = sideResult(
+    proposal.a, proposal.b, base, applied.rosters, applied.picks, before, after, freeAgents,
+  );
+  const sideB = sideResult(
+    proposal.b, proposal.a, base, applied.rosters, applied.picks, before, after, freeAgents,
+  );
 
   const matrixDelta: FinishMatrix = {
     rosterIds: after.result.finish.rosterIds,

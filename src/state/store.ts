@@ -368,16 +368,25 @@ export const useStore = create<State & Actions>((set, get) => ({
     persistNow(get());
   },
 
-  setProposal: (proposal) => set({ proposal, tradeResult: null }),
+  setProposal: (proposal) => set({ proposal }),
 
+  /**
+   * Every edit to a trade fires one of these, so results can arrive out of
+   * order. Only the newest request is allowed to write: an older run finishing
+   * late would otherwise repaint the panel with numbers for a trade the user
+   * has already changed.
+   */
   async evaluateProposal() {
     const state = get();
     if (!state.proposal || !state.scenario) return;
+    const seq = ++tradeSeq;
     set({ tradeRunning: true, simError: null });
     try {
       const result = await runTrade(buildRequest(state), state.proposal);
+      if (seq !== tradeSeq) return;
       set({ tradeResult: result, tradeRunning: false });
     } catch (error) {
+      if (seq !== tradeSeq) return;
       set({
         tradeRunning: false,
         simError: error instanceof Error ? error.message : 'Trade evaluation failed.',
@@ -518,6 +527,9 @@ function buildRequest(state: State) {
     },
   };
 }
+
+/** Monotonic id for trade runs, so a stale worker reply is dropped. */
+let tradeSeq = 0;
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 function persistNow(state: State) {

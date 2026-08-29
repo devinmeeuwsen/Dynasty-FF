@@ -25,7 +25,10 @@ export interface TeamStanding {
 
 export interface SeasonInput {
   rosterIds: number[];
-  /** Optimal starting lineup total for each team, in win now value units. */
+  /**
+   * Team strength in win now value units: the optimal starting lineup plus the
+   * slice of the bench that actually plays. Built by `teamStrength`.
+   */
   strengths: Map<number, number>;
   /** Regular season weeks still to be played. */
   remainingSchedule: WeekSchedule[];
@@ -72,9 +75,13 @@ export interface SeasonResult {
  * strength across the league, which made a team's sensitivity depend on how
  * tightly packed its league happened to be — in a league of near identical
  * rosters, one waiver claim moved a team eight standard deviations. The affine
- * form has no such pathology, is invariant to the value scale lambda produces,
- * and still leaves a bench acquisition moving nothing at all, because a bench
- * player does not change lineup strength.
+ * form has no such pathology and is invariant to the value scale lambda
+ * produces.
+ *
+ * `strengths` is a team's starters plus its first line of backups, weighted by
+ * how often a starting slot needs covering — see `depth.ts`. So a bench
+ * acquisition moves this, but only by a fifth of what the same player would
+ * move it as a starter, and a fourth running back moves it not at all.
  */
 export function projectMeanPoints(
   rosterIds: number[],

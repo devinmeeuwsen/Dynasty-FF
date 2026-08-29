@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DraftPick, ValuedPlayer } from '../../engine/types';
 import { pickKey, pickLabel } from '../../engine/picks';
-import type { TradeSideResult } from '../../engine/trade';
+import { sideGain, type SideGain, type TradeSideResult } from '../../engine/trade';
+import { assessPosture, POSTURE_COPY } from '../../engine/posture';
+import type { Scenario } from '../../engine/scenario';
 import { useStore } from '../../state/store';
 import { useTeamName } from '../useTeamName';
 import { ContentionSlider } from '../components/ContentionSlider';
@@ -36,10 +38,14 @@ interface SideState {
   picks: string[];
 }
 
+/** Long enough that adding three players fires one run, short enough to feel live. */
+const AUTO_EVALUATE_MS = 300;
+
 /**
- * The calculator shows three changes per side and never declares a winner. A
- * trade that is win now positive and long term negative is exactly right for a
- * contender and exactly wrong for a rebuilder.
+ * The calculator never declares a winner. A trade that is win now positive and
+ * long term negative is exactly right for a contender and exactly wrong for a
+ * rebuilder, so the output is two readings — one per side, each in that side's
+ * own currency — and the reader decides.
  */
 export function TradeView() {
   const rosters = useStore((s) => s.rosters);
@@ -65,6 +71,37 @@ export function TradeView() {
     picks: [],
   });
 
+  const aFilled = a.players.length + a.picks.length > 0;
+  const bFilled = b.players.length + b.picks.length > 0;
+  const ready = aFilled && bFilled;
+  const empty = !aFilled && !bFilled;
+
+  /**
+   * The trade evaluates itself. There is no Evaluate button because there is no
+   * question it would answer: the proposal in front of you is the one you want
+   * priced, and a button only ever lets the panel below disagree with the panel
+   * above. Debounced, so building a three player side runs the season once
+   * rather than three times, and the store drops any reply that arrives after a
+   * newer edit.
+   */
+  const key = `${a.rosterId}:${[...a.players].sort().join(',')}:${[...a.picks].sort().join(',')}|` +
+    `${b.rosterId}:${[...b.players].sort().join(',')}:${[...b.picks].sort().join(',')}`;
+  const ranFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ready || !scenario) return;
+    if (ranFor.current === key) return;
+    const timer = setTimeout(() => {
+      ranFor.current = key;
+      setProposal({
+        a: { rosterId: a.rosterId, players: a.players, picks: a.picks },
+        b: { rosterId: b.rosterId, players: b.players, picks: b.picks },
+      });
+      void evaluateProposal();
+    }, AUTO_EVALUATE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, ready, scenario]);
+
   if (rosters.length === 0 || !scenario) {
     return (
       <Panel>
@@ -76,21 +113,14 @@ export function TradeView() {
     );
   }
 
-  const empty = a.players.length + a.picks.length + b.players.length + b.picks.length === 0;
-
-  const submit = () => {
-    setProposal({
-      a: { rosterId: a.rosterId, players: a.players, picks: a.picks },
-      b: { rosterId: b.rosterId, players: b.players, picks: b.picks },
-    });
-    void evaluateProposal();
-  };
-
   const clear = () => {
+    ranFor.current = null;
     setA({ ...a, players: [], picks: [] });
     setB({ ...b, players: [], picks: [] });
     setProposal(null);
   };
+
+  const showResult = tradeResult && ready;
 
   return (
     <div className="space-y-4">
@@ -114,18 +144,19 @@ export function TradeView() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" onClick={submit} disabled={empty || tradeRunning}>
-          {tradeRunning ? 'Re-running the season…' : 'Evaluate trade'}
-        </Button>
         <Button onClick={clear} disabled={empty}>
           Clear
         </Button>
         <span className="text-[0.75rem] text-ink-500">
-          Both scenarios run under the same seed, so the difference is the trade, not noise.
+          {tradeRunning
+            ? 'Re-running the season on both rosters…'
+            : ready
+              ? 'Updates itself on every change. Both scenarios run under the same seed, so the difference is the trade, not noise.'
+              : 'Put at least one asset on each side.'}
         </span>
       </div>
 
-      {tradeResult ? (
+      {showResult ? (
         <TradeResultPanels
           result={tradeResult}
           teamName={teamName}
@@ -190,6 +221,23 @@ function SideBuilder({
 
   const accent = highlight === 'blend' ? 'text-blend-400' : 'text-now-400';
 
+  /**
+   * The originating team is named only when it is somebody else's pick. On your
+   * own pick the name is the team you are already looking at, and repeating it
+   * on every row buries the half of the label that carries information.
+   */
+  const labelFor = (pick: DraftPick) =>
+    pickLabel(
+      pick,
+      pick.originalRosterId === side.rosterId ? undefined : teamName(pick.originalRosterId),
+    );
+
+  const rangeOf = (key: string) => {
+    const valuation = pickValuations?.get(key);
+    if (!valuation) return null;
+    return `${formatSlot(valuation.slotRange[0], teams)}–${formatSlot(valuation.slotRange[1], teams)}`;
+  };
+
   return (
     <Panel className="overflow-hidden">
       <PanelHeader
@@ -223,7 +271,6 @@ function SideBuilder({
                   <div className="num text-[0.6875rem] text-ink-500">
                     {p.team ?? 'FA'}
                     {p.age != null ? ` · ${p.age}yo` : ''}
-                    {p.ownerRosterId != null ? ` · ${teamName(p.ownerRosterId)}` : ' · waivers'}
                   </div>
                 </div>
                 <button
@@ -270,10 +317,10 @@ function SideBuilder({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[0.875rem] font-semibold text-ink-100">
-                      {pickLabel(pick, teamName(pick.originalRosterId))}
+                      {labelFor(pick)}
                     </div>
                     <div className="num text-[0.6875rem] text-ink-500">
-                      long term only · lands where {teamName(pick.originalRosterId)} finishes
+                      {rangeOf(pickKey(pick)) ?? ''}
                     </div>
                   </div>
                   <button
@@ -364,19 +411,13 @@ function SideBuilder({
             .sort((x, y) => x.season - y.season || x.round - y.round)
             .map((pick) => {
               const key = pickKey(pick);
-              const own = pick.originalRosterId === pick.ownerRosterId;
               return (
                 <li key={key} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[0.8125rem] font-medium text-ink-100">
-                      {pickLabel(pick, teamName(pick.originalRosterId))}
+                      {labelFor(pick)}
                     </div>
-                    <div className="num text-[0.6875rem] text-ink-400">
-                      {own ? 'own pick' : 'acquired'}
-                      {pickValuations?.get(key)
-                        ? ` · lands ${formatSlot(pickValuations.get(key)!.slotRange[0], teams)}–${formatSlot(pickValuations.get(key)!.slotRange[1], teams)}`
-                        : ''}
-                    </div>
+                    <div className="num text-[0.6875rem] text-ink-400">{rangeOf(key) ?? ''}</div>
                   </div>
                   {pickValuations?.get(key) ? (
                     <div className="num text-right text-[0.8125rem] font-semibold text-later-400">
@@ -399,6 +440,174 @@ function SideBuilder({
   );
 }
 
+/**
+ * The scale.
+ *
+ * KeepTradeCut's calculator puts one bar across the middle and tips it toward
+ * whoever "won". That question does not survive contact with dynasty: a
+ * contender buying this season and a rebuilder selling it are not competing for
+ * the same thing, and a deal can be genuinely good for both. So there are two
+ * bars, one per team, each measuring that team's gain against ITS OWN goals.
+ *
+ * The weight per side starts where the simulation puts that team and stays
+ * draggable, because a manager can know something the model does not — that the
+ * team across from you is about to tear it down. Dragging one side never moves
+ * the other; the whole point is that the two can disagree.
+ */
+function TradeScale({
+  sides,
+  before,
+  teamName,
+}: {
+  sides: [TradeSideResult, TradeSideResult];
+  before: Scenario;
+  teamName: (rosterId: number) => string;
+}) {
+  const derived = useMemo(() => {
+    const out = new Map<number, { weight: number; label: string }>();
+    for (const side of sides) {
+      const posture = assessPosture(before, side.rosterId);
+      out.set(side.rosterId, {
+        weight: posture.weight,
+        label: POSTURE_COPY[posture.posture].label,
+      });
+    }
+    return out;
+  }, [sides, before]);
+
+  const [overrides, setOverrides] = useState<Record<number, number>>({});
+  // A new pair of teams should not inherit the last pair's dragged weights.
+  const pairKey = sides.map((s) => s.rosterId).join(':');
+  const lastPair = useRef(pairKey);
+  useEffect(() => {
+    if (lastPair.current !== pairKey) {
+      lastPair.current = pairKey;
+      setOverrides({});
+    }
+  }, [pairKey]);
+
+  const gains: SideGain[] = sides.map((side) =>
+    sideGain(side, overrides[side.rosterId] ?? derived.get(side.rosterId)?.weight ?? 0.5),
+  );
+
+  const scale = Math.max(
+    1,
+    ...gains.flatMap((g) => [Math.abs(g.gained), Math.abs(g.winNow), Math.abs(g.future)]),
+  );
+
+  return (
+    <Panel className="overflow-hidden animate-rise">
+      <PanelHeader
+        title="What each side gains"
+        subtitle="Two teams with different goals can both come out ahead, so there is no combined bar and no winner. Each reading is that team's own blend of this season and everything after it."
+      />
+      <div className="divide-y divide-white/[0.05]">
+        {gains.map((gain, i) => {
+          const weight = gain.weight;
+          const meta = derived.get(gain.rosterId);
+          const overridden = overrides[gain.rosterId] != null;
+          return (
+            <div key={gain.rosterId} className="px-4 py-4 sm:px-5">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span
+                    className={`text-[0.9375rem] font-semibold ${
+                      i === 0 ? 'text-blend-400' : 'text-now-400'
+                    }`}
+                  >
+                    {teamName(gain.rosterId)}
+                  </span>
+                  <span className="rounded-full bg-white/[0.07] px-2 py-0.5 text-[0.625rem] uppercase tracking-wide text-ink-300">
+                    {meta?.label ?? 'balanced'}
+                  </span>
+                  {overridden ? (
+                    <button
+                      onClick={() =>
+                        setOverrides((prev) => {
+                          const next = { ...prev };
+                          delete next[gain.rosterId];
+                          return next;
+                        })
+                      }
+                      className="focus-ring rounded-full border border-white/15 px-2 py-0.5 text-[0.625rem] text-ink-400 transition hover:text-ink-200"
+                    >
+                      reset to their odds
+                    </button>
+                  ) : null}
+                </div>
+                <span className={`num text-lg font-semibold ${deltaClass(gain.gained, 0.05)}`}>
+                  {signed(gain.gained, 1)}
+                </span>
+              </div>
+
+              <GainBar gained={gain.gained} scale={scale} />
+
+              <div className="num mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.6875rem]">
+                <span className="text-ink-500">
+                  This season{' '}
+                  <span className={deltaClass(gain.winNow, 0.05)}>{signed(gain.winNow, 1)}</span>
+                </span>
+                <span className="text-ink-500">
+                  Everything after{' '}
+                  <span className={deltaClass(gain.future, 0.05)}>{signed(gain.future, 1)}</span>
+                </span>
+                <span className="text-ink-500">
+                  Title odds{' '}
+                  <span className={deltaClass(sides[i].payoutDelta, 1e-4)}>
+                    {signedPercentPoints(sides[i].payoutDelta)}
+                  </span>
+                </span>
+              </div>
+
+              <div className="mt-2 flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={weight}
+                  aria-label={`${teamName(gain.rosterId)} goal: win now versus the future`}
+                  onChange={(e) =>
+                    setOverrides((prev) => ({
+                      ...prev,
+                      [gain.rosterId]: Number(e.target.value),
+                    }))
+                  }
+                  className="timeline-slider flex-1"
+                />
+                <span className="num w-32 shrink-0 text-right text-[0.6875rem] text-ink-500">
+                  {Math.round(weight * 100)}% win now
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="border-t border-white/[0.06] px-4 py-3 text-[0.75rem] leading-relaxed text-ink-400 sm:px-5">
+        Both readings are in value above replacement, the same units as every rating on the players
+        screen. Drag either slider to ask what the deal looks like if that team's plan is different
+        from the one the simulation infers.
+      </p>
+    </Panel>
+  );
+}
+
+/** A diverging bar centred on zero, so a loss reads as a loss without a label. */
+function GainBar({ gained, scale }: { gained: number; scale: number }) {
+  const magnitude = Math.min(1, Math.abs(gained) / scale);
+  const width = `${(magnitude * 50).toFixed(2)}%`;
+  const positive = gained >= 0;
+  return (
+    <div className="relative mt-2 h-2.5 overflow-hidden rounded-full bg-white/[0.05]">
+      <div className="absolute inset-y-0 left-1/2 w-px bg-white/20" />
+      <div
+        className={`absolute inset-y-0 rounded-full ${positive ? 'bg-good-500/80' : 'bg-bad-500/80'}`}
+        style={positive ? { left: '50%', width } : { right: '50%', width }}
+      />
+    </div>
+  );
+}
+
 function TradeResultPanels({
   result,
   teamName,
@@ -417,12 +626,7 @@ function TradeResultPanels({
 
   return (
     <div className="space-y-4 animate-rise">
-      {result.positiveForBoth ? (
-        <Callout tone="good" title="Positive for both teams on every metric">
-          Championship equity, long term value and draft capital all move the right way for both
-          sides. Trades shaped like this are the ones that actually get accepted.
-        </Callout>
-      ) : null}
+      <TradeScale sides={result.sides} before={result.before} teamName={teamName} />
 
       {result.deadZone
         .filter((verdict) => verdict.triggered || verdict.message)
@@ -454,7 +658,7 @@ function TradeResultPanels({
 
       <Panel className="overflow-hidden">
         <PanelHeader
-          title="Three changes per side"
+          title="Every change, per side"
           subtitle="No verdict. Read these against the timeline slider and your own situation."
         />
         <div className="overflow-x-auto">
@@ -472,8 +676,16 @@ function TradeResultPanels({
             </thead>
             <tbody>
               <MetricRow
+                label="This season — team strength"
+                hint="Starting lineup plus the backup line, which is what the season simulation actually runs on."
+                a={signed(sideA.strengthDelta)}
+                b={signed(sideB.strengthDelta)}
+                aValue={sideA.strengthDelta}
+                bValue={sideB.strengthDelta}
+              />
+              <MetricRow
                 label={payoutIsWinnerTakeAll ? 'Championship probability' : 'Expected payout'}
-                hint="From the finish matrix, re-simulated on the modified rosters"
+                hint="What that strength buys, from the finish matrix re-simulated on the modified rosters"
                 a={signedPercentPoints(sideA.payoutDelta)}
                 b={signedPercentPoints(sideB.payoutDelta)}
                 aValue={sideA.payoutDelta}
@@ -525,6 +737,8 @@ function TradeResultPanels({
         </p>
       </Panel>
 
+      <RosterSpots sides={result.sides} teamName={teamName} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <PickBreakdown side={sideA} teamName={teamName} />
         <PickBreakdown side={sideB} teamName={teamName} />
@@ -570,6 +784,119 @@ function TradeResultPanels({
         sampling error rather than value appearing from nowhere. Anything larger would be a bug.
       </Callout>
     </div>
+  );
+}
+
+/**
+ * Roster spots.
+ *
+ * The intuition is that a two for one frees a seat and a free seat is worth
+ * something. The arithmetic disagrees, and it is worth showing why rather than
+ * hiding a zero: every value here is measured above replacement, and
+ * replacement level IS the best free agent, so the player who fills the empty
+ * seat is worth exactly nothing by construction.
+ *
+ * The cost of not having a seat is entirely real, and this is where it lands.
+ * A team at its limit that takes back more bodies than it sends has to release
+ * someone it chose over the wire, and that release is charged here.
+ */
+function RosterSpots({
+  sides,
+  teamName,
+}: {
+  sides: [TradeSideResult, TradeSideResult];
+  teamName: (rosterId: number) => string;
+}) {
+  const interesting = sides.some(
+    (s) => s.rosterSpots.cuts.length > 0 || s.rosterSpots.freed > 0,
+  );
+  if (!interesting) return null;
+
+  return (
+    <Panel className="overflow-hidden">
+      <PanelHeader
+        title="Roster spots"
+        subtitle="Bodies in and out, and what the roster limit does about it."
+      />
+      <div className="grid gap-px bg-white/[0.05] sm:grid-cols-2">
+        {sides.map((side) => {
+          const spots = side.rosterSpots;
+          return (
+            <div key={side.rosterId} className="bg-ink-900/60 p-4 sm:p-5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[0.8125rem] font-semibold text-ink-100">
+                  {teamName(side.rosterId)}
+                </span>
+                <span className="num text-[0.6875rem] text-ink-500">
+                  {spots.before} → {spots.after} of {spots.capacity}
+                </span>
+              </div>
+
+              {spots.cuts.length > 0 ? (
+                <div className="mt-2">
+                  <div className="text-[0.6875rem] font-medium uppercase tracking-[0.09em] text-bad-500">
+                    Must release {spots.cuts.length}
+                  </div>
+                  <ul className="mt-1 space-y-1">
+                    {spots.cuts.map((cut) => (
+                      <li
+                        key={cut.player.id}
+                        className="flex items-center gap-2 text-[0.8125rem]"
+                      >
+                        <PositionChip position={cut.player.position} />
+                        <span className="min-w-0 flex-1 truncate text-ink-200">
+                          {cut.player.name}
+                        </span>
+                        <span className={`num ${deltaClass(cut.strengthDelta, 0.01)}`}>
+                          {signed(cut.strengthDelta, 1)}
+                        </span>
+                        <span className={`num ${deltaClass(cut.assetDelta, 0.01)}`}>
+                          {signed(cut.assetDelta, 1)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1.5 text-[0.6875rem] leading-relaxed text-ink-500">
+                    Cheapest legal cut, chosen by what it costs this lineup rather than by raw
+                    rating. This season's loss first, long term loss second.
+                  </p>
+                </div>
+              ) : null}
+
+              {spots.freed > 0 ? (
+                <div className="mt-2">
+                  <div className="text-[0.6875rem] font-medium uppercase tracking-[0.09em] text-ink-400">
+                    {spots.freed} spot{spots.freed === 1 ? '' : 's'} freed
+                  </div>
+                  <ul className="mt-1 space-y-1">
+                    {spots.adds.map((add) => (
+                      <li key={add.player.id} className="flex items-center gap-2 text-[0.8125rem]">
+                        <PositionChip position={add.player.position} />
+                        <span className="min-w-0 flex-1 truncate text-ink-200">
+                          {add.player.name}
+                        </span>
+                        <span className="num text-ink-400">{signed(add.strengthDelta, 1)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1.5 text-[0.6875rem] leading-relaxed text-ink-500">
+                    Best available, and worth {signed(spots.strengthDelta, 1)} — replacement level
+                    is defined as the best free agent, so an empty seat is flexibility rather than
+                    value. What it saves you is the cut on the other side of this panel.
+                  </p>
+                </div>
+              ) : null}
+
+              {spots.cuts.length === 0 && spots.freed === 0 ? (
+                <p className="mt-2 text-[0.75rem] text-ink-500">
+                  Even bodies. Nothing to release, nothing to fill.
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
   );
 }
 
@@ -629,9 +956,7 @@ function PickBreakdown({
               <div className="min-w-0 flex-1">
                 <div className="text-[0.8125rem] text-ink-100">
                   {entry.pick.season} round {entry.pick.round}
-                  {entry.originalRosterId === side.rosterId ? (
-                    <span className="ml-1.5 text-[0.6875rem] text-ink-500">own</span>
-                  ) : (
+                  {entry.originalRosterId === side.rosterId ? null : (
                     <span className="ml-1.5 text-[0.6875rem] text-ink-500">
                       via {teamName(entry.originalRosterId)}
                     </span>
