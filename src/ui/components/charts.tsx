@@ -100,8 +100,8 @@ export function ValueScatter({
         </text>
 
         {points.map((p) => {
-          const cx = (p.longTermRating / maxX) * W;
-          const cy = H - (p.winNowRating / maxY) * H;
+          const cx = (p.rating / maxX) * W;
+          const cy = H - (p.redraft / maxY) * H;
           const isHighlighted = highlight?.has(p.id);
           const r = isHighlighted ? 1.9 : 1.15;
           return (
@@ -127,9 +127,9 @@ export function ValueScatter({
         <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-lg border border-white/10 bg-ink-950/95 px-3 py-2 text-center shadow-xl backdrop-blur">
           <div className="text-[0.8125rem] font-semibold text-ink-100">{hovered.name}</div>
           <div className="num mt-0.5 text-[0.75rem] text-ink-400">
-            <span className="text-now-400">{value(hovered.winNowRating)} now</span>
+            <span className="text-now-400">{value(hovered.redraft)} now</span>
             {' · '}
-            <span className="text-later-400">{value(hovered.longTermRating)} later</span>
+            <span className="text-later-400">{value(hovered.rating)} later</span>
           </div>
         </div>
       ) : null}

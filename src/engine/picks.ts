@@ -6,6 +6,7 @@ import type {
   ReplacementLevels,
 } from './types';
 import type { RankToValue } from './rank';
+import { pickSlotRating, type PickBoard } from './pickValues';
 
 /**
  * Draft pick ownership and valuation.
@@ -115,7 +116,12 @@ export interface PickValuationContext {
   /** Draft slot probabilities per team, from the simulation. */
   draftSlots: FinishMatrix;
   teams: number;
-  /** The long term rank→value curve. Picks are always valued in long term units. */
+  /**
+   * Published rookie pick values. Present for a real league; absent only in
+   * fixtures, where the legacy curve below stands in.
+   */
+  pickBoard?: PickBoard;
+  /** Fallback rank→value curve for when no pick board is available. */
   curve: RankToValue;
   longTermReplacement: ReplacementLevels;
   settings: Pick<
@@ -129,7 +135,18 @@ export interface PickValuationContext {
 export interface PickValuation {
   key: string;
   pick: DraftPick;
+  /**
+   * Long term value over replacement, which is what the engine trades on.
+   * Picks have no win now number by construction: a future rookie plays no
+   * games this season.
+   */
   value: number;
+  /**
+   * The 0-100 market rating, on the same scale as a player's. This is the
+   * number to show next to players; `value` is the number to do arithmetic
+   * with, exactly as with a player's rating and VAR.
+   */
+  rating: number;
   /** Probability distribution over draft slots actually used, after widening. */
   slotDistribution: number[];
   /** Expected draft slot, for display only. Never used in the math. */
@@ -162,22 +179,46 @@ export function valuePick(
   const widen = Math.min(0.95, ctx.settings.futureUncertaintyPerYear * yearsOut);
   const slotDistribution = base.map((p) => (1 - widen) * p + widen * uniform);
 
-  const discount = Math.pow(ctx.settings.futureDiscountPerYear, yearsOut);
+  const replacement = genericReplacement(ctx.longTermReplacement);
 
-  let value = 0;
+  // The published board already prices a further-out draft lower, so applying
+  // `futureDiscountPerYear` on top of it would discount the same year twice.
+  // It survives only on the fallback path, where nothing else encodes distance.
+  const discount = ctx.pickBoard
+    ? 1
+    : Math.pow(ctx.settings.futureDiscountPerYear, yearsOut);
+
+  let rating = 0;
   let expectedSlot = 0;
   for (let i = 0; i < slotDistribution.length; i++) {
-    const overallSlot = (pick.round - 1) * teams + (i + 1);
-    value +=
-      slotDistribution[i] *
-      pickSlotValue(overallSlot, ctx.curve, genericReplacement(ctx.longTermReplacement), ctx.settings);
-    expectedSlot += slotDistribution[i] * (i + 1);
+    const slotInRound = i + 1;
+    const slotRating = ctx.pickBoard
+      ? pickSlotRating(
+          ctx.pickBoard,
+          ctx.nextDraftSeason,
+          pick.season,
+          pick.round,
+          slotInRound,
+          teams,
+        )
+      : ctx.curve(
+          ctx.settings.pickBaseRank *
+            Math.pow(Math.max(1, (pick.round - 1) * teams + slotInRound), ctx.settings.pickExponent),
+        );
+    // Every slot is weighted by how likely this pick is to land there, so a
+    // team 50% to finish last contributes half of a 1.01 and nothing is ever
+    // valued off a point estimate of where a team will end up.
+    rating += slotDistribution[i] * slotRating;
+    expectedSlot += slotDistribution[i] * slotInRound;
   }
+
+  rating *= discount;
 
   return {
     key: pickKey(pick),
     pick,
-    value: value * discount,
+    rating,
+    value: Math.max(0, rating - replacement),
     slotDistribution,
     expectedSlot,
     slotRange: percentileRange(slotDistribution, pick.round, teams),
@@ -192,9 +233,16 @@ function percentileRange(
   let cumulative = 0;
   let low = 1;
   let high = distribution.length;
+  // `found` rather than testing `low === 1`: the sentinel collided with a
+  // legitimate first slot, so a pick 50% likely to be the 1.01 reported its
+  // range as starting at 2.
+  let found = false;
   for (let i = 0; i < distribution.length; i++) {
     cumulative += distribution[i];
-    if (cumulative >= 0.1 && low === 1) low = i + 1;
+    if (!found && cumulative >= 0.1) {
+      low = i + 1;
+      found = true;
+    }
     if (cumulative >= 0.9) {
       high = i + 1;
       break;
@@ -212,9 +260,17 @@ export function valueAllPicks(
   return out;
 }
 
-export function pickLabel(pick: DraftPick, teamName?: string): string {
-  const suffix = teamName ? ` (${teamName})` : '';
-  return `${pick.season} ${ordinalRound(pick.round)}${suffix}`;
+/**
+ * `2027 2nd Rd (elikuiper)`.
+ *
+ * The name in parentheses is the ORIGINAL owner, not whoever holds the pick.
+ * That is the half that carries information: the holder is already obvious
+ * from where the pick is listed, while the originator is what decides where it
+ * lands and therefore what it is worth.
+ */
+export function pickLabel(pick: DraftPick, originalOwnerName?: string): string {
+  const suffix = originalOwnerName ? ` (${originalOwnerName})` : '';
+  return `${pick.season} ${ordinalRound(pick.round)} Rd${suffix}`;
 }
 
 function ordinalRound(round: number): string {

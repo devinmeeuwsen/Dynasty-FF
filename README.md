@@ -159,6 +159,23 @@ Sixteen boards in total. A tight end premium moves tight ends and nothing else,
 which the snapshot build asserts on every run, so premium boards ship as
 tight-end overrides merged onto the base board rather than as copies.
 
+### Three numbers
+
+- **Rating** — KeepTradeCut's dynasty value, 0-100. The dynasty market already
+  prices a player's whole future, this season included, so this is *the*
+  number.
+- **Redraft** — FantasyPros expert consensus order, priced on the same ladder.
+  What he is worth for this season alone.
+- **Long term** — Rating minus Redraft, signed. Positive is a better asset than
+  starter, negative the reverse, and within three points either way he is
+  balanced: good now and later.
+
+Both sides are drawn from one distribution, so a player who stands equally high
+on each lands at zero — Gibbs, redraft #2 and dynasty #1, reads +0.1. The top of
+the redraft ladder gets a flattened shoulder because a dynasty market clusters
+its cornerstones at the ceiling and then cliffs, which would otherwise invent a
+seven point gap between two backs who are interchangeable this season.
+
 ### Two columns, not one
 
 - **Rating** — 0-100 standalone market value. Every player has one, waiver wire
@@ -167,6 +184,17 @@ tight-end overrides merged onto the base board rather than as copies.
   waiver wire; negative means the free agent pool already offers better. Signed on
   screen; the engine clamps it at zero internally, because a player who never cracks
   the lineup adds no marginal value to it.
+
+## Rookie picks
+
+Priced off KeepTradeCut's published pick tiers, which are defined on a twelve
+team board — early is a 1-4 finish, mid 5-8, late 9-12. The anchors are laid
+out along the **overall pick number** and interpolated as one continuous curve,
+so a league of any size reads it at its own positions: a ten team league's 2.01
+is overall pick 11 and is worth what the back of a first round is worth.
+
+Each pick is valued across the whole distribution of where its **original**
+owner might finish, never a point estimate. Picks are a long term asset only.
 
 ## Contention is derived, not asked
 

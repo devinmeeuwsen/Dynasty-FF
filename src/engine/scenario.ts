@@ -6,6 +6,7 @@ import type {
   ValuedPlayer,
 } from './types';
 import type { RankToValue } from './rank';
+import type { PickBoard } from './pickValues';
 import type { ReplacementLevels } from './types';
 import { optimizeLineup, startingSlots, type LineupPlayer } from './lineup';
 import {
@@ -38,6 +39,8 @@ export interface ScenarioInput {
   picks: DraftPick[];
   settings: EngineSettings;
   longTermCurve: RankToValue;
+  /** Published rookie pick values. Absent in fixtures, which use the curve. */
+  pickBoard?: PickBoard;
   longTermReplacement: ReplacementLevels;
   nextDraftSeason: number;
   season: Omit<
@@ -74,7 +77,7 @@ function lineupPlayers(
   for (const id of roster.playerIds) {
     const v = values.get(id);
     if (!v) continue;
-    out.push({ id, position: v.position, value: v.winNow });
+    out.push({ id, position: v.position, value: v.lineupValue });
   }
   return out;
 }
@@ -97,8 +100,8 @@ export function evaluateScenario(input: ScenarioInput): Scenario {
     for (const id of roster.playerIds) {
       const v = input.values.get(id);
       if (!v) continue;
-      lt += v.longTerm;
-      wn += v.winNow;
+      lt += v.assetValue;
+      wn += v.lineupValue;
     }
     longTermByTeam.set(roster.rosterId, lt);
     winNowByTeam.set(roster.rosterId, wn);
@@ -121,6 +124,7 @@ export function evaluateScenario(input: ScenarioInput): Scenario {
     draftSlots: result.draftSlots,
     teams: rosterIds.length,
     curve: input.longTermCurve,
+    pickBoard: input.pickBoard,
     longTermReplacement: input.longTermReplacement,
     settings: input.settings,
     nextDraftSeason: input.nextDraftSeason,
@@ -176,5 +180,5 @@ export function rosterEfficiency(
         starting: startingSet.has(p.id),
       };
     })
-    .sort((a, b) => b.marginalWinNow - a.marginalWinNow || b.player.longTerm - a.player.longTerm);
+    .sort((a, b) => b.marginalWinNow - a.marginalWinNow || b.player.assetValue - a.player.assetValue);
 }

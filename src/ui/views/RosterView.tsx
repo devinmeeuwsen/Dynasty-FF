@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { rosterEfficiency } from '../../engine/scenario';
 import { startingSlots } from '../../engine/lineup';
-import { blendedValue } from '../../engine/values';
+import { blendedVar } from '../../engine/values';
 import { useStore } from '../../state/store';
 import { useTeamName } from '../useTeamName';
 import { ContentionSlider } from '../components/ContentionSlider';
@@ -15,7 +15,7 @@ import {
   Select,
   Stat,
 } from '../components/primitives';
-import { deltaClass, ordinal, percent, signed, value } from '../format';
+import { TIMELINE_LABEL, deltaClass, ordinal, percent, signed, value, timelineClass, timelineOf } from '../format';
 
 /**
  * Roster efficiency: the marginal value of every player you own.
@@ -56,14 +56,14 @@ export function RosterView() {
 
   const starters = entries.filter((e) => e.starting);
   const bench = entries.filter((e) => !e.starting);
-  const lineupTotal = starters.reduce((sum, e) => sum + e.player.winNow, 0);
+  const lineupTotal = starters.reduce((sum, e) => sum + e.player.lineupValue, 0);
   const maxMarginal = Math.max(1, ...entries.map((e) => e.marginalWinNow));
 
   // Buried surplus: real long term value sitting on a bench, contributing
   // nothing to this season.
   const buried = bench
-    .filter((e) => e.player.longTerm > 0 && e.marginalWinNow === 0)
-    .sort((a, b) => b.player.longTerm - a.player.longTerm)
+    .filter((e) => e.player.assetValue > 0 && e.marginalWinNow === 0)
+    .sort((a, b) => b.player.assetValue - a.player.assetValue)
     .slice(0, 5);
 
   const finishRow = scenario?.result.finish;
@@ -87,7 +87,7 @@ export function RosterView() {
         </Panel>
         <Panel className="p-4">
           <Stat label="Long term on roster" tone="later" hint={`${entries.length} valued players`}>
-            {value(entries.reduce((s, e) => s + e.player.longTerm, 0), 0)}
+            {value(entries.reduce((s, e) => s + e.player.assetValue, 0), 0)}
           </Stat>
         </Panel>
         <Panel className="p-4">
@@ -131,7 +131,7 @@ export function RosterView() {
       <Panel className="overflow-hidden animate-rise">
         <PanelHeader
           title="Marginal value of every player you own"
-          subtitle="How much the optimal starting total drops if this player disappears. Zero means he cannot crack the lineup, which is correct rather than a rounding artefact."
+          subtitle="How much the optimal starting total drops if this player disappears — zero means he cannot crack the lineup, which is correct rather than a rounding artefact. Sort by VAR to find the roster spots free agency would improve: anything negative is worse than a player nobody in the league has claimed."
         />
         <div className="overflow-x-auto">
           <table className="w-full min-w-[38rem] text-[0.8125rem]">
@@ -140,10 +140,19 @@ export function RosterView() {
                 <th className="py-2.5 pl-4 text-left font-medium sm:pl-5">Player</th>
                 <th className="px-3 py-2.5 text-left font-medium">Role</th>
                 <th className="px-3 py-2.5 text-right font-medium">Marginal now</th>
-                <th className="px-3 py-2.5 text-right font-medium text-now-400">Win now</th>
-                <th className="px-3 py-2.5 text-right font-medium text-later-400">Long term</th>
-                <th className="py-2.5 pr-4 text-right font-medium text-blend-400 sm:pr-5">
-                  Blended
+                <th className="px-3 py-2.5 text-right font-medium text-blend-400">Rating</th>
+                <th className="px-3 py-2.5 text-right font-medium text-now-400">Redraft</th>
+                <th
+                  className="px-3 py-2.5 text-right font-medium text-later-400"
+                  title="Rating minus redraft. Positive is a better asset than starter, negative the reverse, within three points either way is balanced."
+                >
+                  Long term
+                </th>
+                <th
+                  className="py-2.5 pr-4 text-right font-medium sm:pr-5"
+                  title="Rating minus the best player at this position nobody in the league has rostered. Negative means the waiver wire already offers better."
+                >
+                  VAR
                 </th>
               </tr>
             </thead>
@@ -185,15 +194,29 @@ export function RosterView() {
                       className="mt-1 ml-auto w-14"
                     />
                   </td>
+                  <td className="num px-3 py-2.5 text-right text-blend-400">
+                    {value(entry.player.rating)}
+                  </td>
                   <td className="num px-3 py-2.5 text-right text-now-400">
-                    {value(entry.player.winNow)}
+                    {value(entry.player.redraft)}
                   </td>
-                  <td className="num px-3 py-2.5 text-right text-later-400">
-                    {value(entry.player.longTerm)}
+                  <td
+                    className={`num px-3 py-2.5 text-right ${timelineClass(entry.player.longTerm)}`}
+                    title={TIMELINE_LABEL[timelineOf(entry.player.longTerm)]}
+                  >
+                    {signed(entry.player.longTerm)}
                   </td>
-                  <td className="num py-2.5 pr-4 text-right font-semibold text-blend-400 sm:pr-5">
-                    {value(blendedValue(entry.player, weight))}
+                  {/* Signed, and the reason this column exists: a negative
+                      number is a roster spot the waiver wire would improve. */}
+                  <td
+                    className={`num py-2.5 pr-4 text-right font-medium sm:pr-5 ${deltaClass(
+                      blendedVar(entry.player, weight),
+                      0.05,
+                    )}`}
+                  >
+                    {signed(blendedVar(entry.player, weight))}
                   </td>
+
                 </tr>
               ))}
             </tbody>
@@ -208,7 +231,7 @@ export function RosterView() {
         />
         <ul className="grid gap-px bg-white/[0.05] sm:grid-cols-2 lg:grid-cols-3">
           {starters
-            .sort((a, b) => b.player.winNow - a.player.winNow)
+            .sort((a, b) => b.player.lineupValue - a.player.lineupValue)
             .map((entry) => (
               <li key={entry.player.id} className="flex items-center gap-3 bg-ink-900/60 p-3">
                 <PositionChip position={entry.player.position} />
@@ -216,7 +239,7 @@ export function RosterView() {
                   {entry.player.name}
                 </span>
                 <span className="num text-[0.8125rem] text-now-400">
-                  {value(entry.player.winNow)}
+                  {value(entry.player.lineupValue)}
                 </span>
                 <span className={`num w-12 text-right text-[0.75rem] ${deltaClass(entry.marginalWinNow, 0.05)}`}>
                   {signed(entry.marginalWinNow)}

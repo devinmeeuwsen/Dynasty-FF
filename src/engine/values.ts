@@ -114,27 +114,24 @@ export function runPipeline(input: PipelineInput): PipelineResult {
   const longTerm = runHorizon(input.players, 'dynasty', input);
 
   const valued: ValuedPlayer[] = input.players.map((p) => {
-    const winNowRating = winNow.curves.values.get(p.id) ?? 0;
-    const longTermRating = longTerm.curves.values.get(p.id) ?? 0;
-    const winNowVar = valueOverReplacement(winNowRating, winNow.replacement.levels[p.position]);
-    const longTermVar = valueOverReplacement(longTermRating, longTerm.replacement.levels[p.position]);
+    const rating = longTerm.curves.values.get(p.id) ?? 0;
+    const redraft = winNow.curves.values.get(p.id) ?? 0;
+    const ratingVar = rating - longTerm.replacement.levels[p.position];
+    const redraftVar = redraft - winNow.replacement.levels[p.position];
     return {
       id: p.id,
       name: p.name,
       position: p.position,
       team: p.team,
       age: p.age,
-      winNowRating,
-      longTermRating,
-      winNowVar,
-      longTermVar,
-      winNowRaw: winNowRating,
-      longTermRaw: longTermRating,
-      winNow: Math.max(0, winNowVar),
-      longTerm: Math.max(0, longTermVar),
-      // Compared on ratings, so the direction reflects the player rather than
-      // the two positions' replacement levels happening to differ.
-      timelineGap: winNowRating - longTermRating,
+      rating,
+      redraft,
+      // Both are read off the same ladder, so equal standing is exactly zero.
+      longTerm: rating - redraft,
+      ratingVar,
+      redraftVar,
+      assetValue: Math.max(0, ratingVar),
+      lineupValue: Math.max(0, redraftVar),
       ownerRosterId: input.ownership?.get(p.id) ?? null,
     };
   });
@@ -149,20 +146,21 @@ export function runPipeline(input: PipelineInput): PipelineResult {
 
 /**
  * Step 6: the contention timeline slider.
- *   weight 1 = full contender, weight 0 = full rebuild.
+ *
+ * A contender sorts toward this season's production, a rebuilder toward the
+ * dynasty rating. At weight 0 this is exactly the Rating, which is the number
+ * the product is built on; the slider only ever tilts it toward redraft.
  */
 export function blendedValue(player: ValuedPlayer, weight: number): number {
-  return weight * player.winNow + (1 - weight) * player.longTerm;
+  return weight * player.redraft + (1 - weight) * player.rating;
 }
 
-/** The 0-100 rating blended across the two horizons. Never clamped. */
-export function blendedRating(player: ValuedPlayer, weight: number): number {
-  return weight * player.winNowRating + (1 - weight) * player.longTermRating;
-}
+/** Alias kept for readability at call sites that mean "the sortable number". */
+export const blendedRating = blendedValue;
 
-/** Signed value over replacement, blended across the two horizons. */
+/** Signed value over replacement, tilted the same way as the rating. */
 export function blendedVar(player: ValuedPlayer, weight: number): number {
-  return weight * player.winNowVar + (1 - weight) * player.longTermVar;
+  return weight * player.redraftVar + (1 - weight) * player.ratingVar;
 }
 
 /** Total blended value of a set of players, used by roster efficiency views. */
@@ -173,8 +171,8 @@ export function rosterValue(
   let winNow = 0;
   let longTerm = 0;
   for (const p of players) {
-    winNow += p.winNow;
-    longTerm += p.longTerm;
+    winNow += p.lineupValue;
+    longTerm += p.assetValue;
   }
   return { winNow, longTerm, blended: weight * winNow + (1 - weight) * longTerm };
 }

@@ -289,3 +289,21 @@ export function playerPool(players: Record<string, SleeperPlayer>): MatchCandida
 export function weeksPerPlayoffRound(roundType: number | undefined): number {
   return typeof roundType === 'number' && roundType >= 1 ? 2 : 1;
 }
+
+/**
+ * Which rookie drafts still have picks to trade.
+ *
+ * A league that has reached `in_season` has already held this year's rookie
+ * draft — those picks are players now, not assets — so the next tradeable
+ * draft is the following season. Only `pre_draft` and `drafting` still have
+ * the current year's picks outstanding, which is the same predicate the
+ * schedule loader uses to decide whether the season has started.
+ *
+ * Three seasons rather than two: dynasty leagues routinely trade three years
+ * out, and stopping at two silently hid every pick beyond next season.
+ */
+export function pickSeasons(league: LeagueSnapshot): number[] {
+  const drafted = !['pre_draft', 'drafting'].includes(league.status);
+  const base = drafted ? league.season + 1 : league.season;
+  return [base, base + 1, base + 2];
+}

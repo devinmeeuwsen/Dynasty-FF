@@ -3,14 +3,14 @@ import type { Position, ValuedPlayer } from '../../engine/types';
 import { POSITIONS } from '../../engine/types';
 import { blendedRating, blendedVar } from '../../engine/values';
 import { Bar, PositionChip, TextInput, Toggle } from './primitives';
-import { deltaClass, signed, value } from '../format';
+import { TIMELINE_LABEL, deltaClass, signed, timelineClass, timelineOf, value } from '../format';
 
 export type SortKey =
   | 'rating'
   | 'var'
   | 'winNow'
   | 'longTerm'
-  | 'timelineGap'
+  | 'longTerm'
   | 'name'
   | 'position'
   | 'age';
@@ -39,22 +39,26 @@ const COLUMNS: { key: SortKey; label: string; hint?: string; className: string }
   {
     key: 'rating',
     label: 'Rating',
-    hint: 'KeepTradeCut market value on a 0-100 scale, blended across the two horizons by the contention slider. Standalone worth: every player carries one, waiver wire included.',
+    hint: "KeepTradeCut's dynasty value on a 0-100 scale. The dynasty market already prices a player's whole future, this season included, so this is the number.",
     className: 'text-blend-400',
+  },
+  {
+    key: 'winNow',
+    label: 'Redraft',
+    hint: 'FantasyPros expert consensus order, priced on the same 0-100 ladder as the rating. What he is worth for this season alone.',
+    className: 'text-now-400',
+  },
+  {
+    key: 'longTerm',
+    label: 'Long term',
+    hint: 'Rating minus redraft. Positive means he is a better asset than a starter; negative means the market pays him more for this season than for his career. Within three points either way he is balanced — good now and later.',
+    className: 'text-later-400',
   },
   {
     key: 'var',
     label: 'VAR',
-    hint: 'Value above replacement: rating minus the best player at this position nobody has rostered. Zero is the waiver wire. Negative means the free agent pool already offers better.',
+    hint: 'Value above replacement: rating minus the best player at this position nobody has rostered. Negative means the waiver wire already offers better.',
     className: 'text-ink-200',
-  },
-  { key: 'winNow', label: 'Win now', className: 'text-now-400' },
-  { key: 'longTerm', label: 'Long term', className: 'text-later-400' },
-  {
-    key: 'timelineGap',
-    label: 'Gap',
-    hint: 'Win now minus long term. A direction, never a value: ascending finds buy targets for a rebuild, descending finds sell candidates for a contender.',
-    className: 'text-ink-400',
   },
 ];
 
@@ -119,11 +123,11 @@ export function PlayerTable({
         case 'var':
           return direction * (a.vor - b.vor);
         case 'winNow':
-          return direction * (a.player.winNowRating - b.player.winNowRating);
+          return direction * (a.player.redraft - b.player.redraft);
         case 'longTerm':
-          return direction * (a.player.longTermRating - b.player.longTermRating);
-        case 'timelineGap':
-          return direction * (a.player.timelineGap - b.player.timelineGap);
+          return direction * (a.player.rating - b.player.rating);
+        case 'longTerm':
+          return direction * (a.player.longTerm - b.player.longTerm);
         case 'rating':
         default:
           return direction * (a.rating - b.rating);
@@ -267,6 +271,22 @@ export function PlayerTable({
                             />
                           </td>
                         );
+                      case 'winNow':
+                        return (
+                          <td key={column.key} className="num py-2 pr-3 text-right text-now-400">
+                            {value(p.redraft)}
+                          </td>
+                        );
+                      case 'longTerm':
+                        return (
+                          <td
+                            key={column.key}
+                            className={`num py-2 pr-3 text-right ${timelineClass(p.longTerm)}`}
+                            title={TIMELINE_LABEL[timelineOf(p.longTerm)]}
+                          >
+                            {signed(p.longTerm)}
+                          </td>
+                        );
                       case 'var':
                         return (
                           <td
@@ -274,27 +294,6 @@ export function PlayerTable({
                             className={`num py-2 pr-3 text-right ${deltaClass(row.vor, 0.05)}`}
                           >
                             {signed(row.vor)}
-                          </td>
-                        );
-                      case 'winNow':
-                        return (
-                          <td key={column.key} className="num py-2 pr-3 text-right text-now-400">
-                            {value(p.winNowRating)}
-                          </td>
-                        );
-                      case 'longTerm':
-                        return (
-                          <td key={column.key} className="num py-2 pr-3 text-right text-later-400">
-                            {value(p.longTermRating)}
-                          </td>
-                        );
-                      case 'timelineGap':
-                        return (
-                          <td
-                            key={column.key}
-                            className={`num py-2 pr-3 text-right ${deltaClass(p.timelineGap, 0.5)}`}
-                          >
-                            {signed(p.timelineGap)}
                           </td>
                         );
                       default:
