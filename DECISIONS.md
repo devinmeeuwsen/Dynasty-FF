@@ -283,3 +283,44 @@ and used to report the bracket's true shape. It only exists once the playoffs
 are seeded, which for a dynasty tool is the minority of the year, so the
 derived reseeded bracket remains the working model and the UI says which one is
 in force.
+
+## Rookie picks are priced off the market
+
+**Changed: they used to come from a synthetic curve.** A pick was valued by
+mapping its slot to an "effective dynasty rank" and reading the same rank curve
+players used. KeepTradeCut publishes what picks actually trade for, so that
+guess is no longer needed.
+
+The tiers are defined on a **twelve team board**: an early first is a 1-4
+finish, mid is 5-8, late is 9-12. That makes them a statement about absolute
+draft position, not about position within a round, and it is the detail that
+makes smaller leagues work. The three anchors per round are laid out along the
+overall pick number — 2.5, 6.5, 10.5, then 14.5, 18.5, 22.5 — and interpolated
+in log space as one continuous curve. A league reads that curve at its own
+overall positions, so a ten team league's 2.01 is overall pick 11 and is priced
+as the back of a first round (48.0) rather than as an early second (41.9).
+Scaling the tiers to the league's own round size instead would have undersold
+that pick by about 15%.
+
+A pick is then valued across the **whole row** of the draft slot matrix, never
+a point estimate: a team 50% likely to finish last contributes half of a 1.01,
+30% second-to-last contributes 0.3 of a 1.02, and so on. That was already the
+mechanism; only the per-slot value changed.
+
+`futureDiscountPerYear` is no longer applied on the market path. The published
+board already prices a further-out draft lower, so applying both would discount
+the same year twice. The year-over-year decay used to extend past the last
+published year is measured from the two furthest-out years rather than assumed
+— measuring it across all consecutive years produced a decay above 1.0, because
+the nearest year on the board is often a draft that has already happened and
+whose values have collapsed.
+
+## Which drafts have picks left
+
+**Fixed.** `pickSeasons` keyed off `status === 'complete'`, so a league in
+`in_season` was still shown the current year's picks — which are players by
+then, the rookie draft having happened. The predicate is now the same one the
+schedule loader uses: only `pre_draft` and `drafting` still have this year's
+picks outstanding. The range also went from two seasons to three, because
+dynasty leagues routinely trade three years out and stopping at two silently
+hid every pick beyond next season.

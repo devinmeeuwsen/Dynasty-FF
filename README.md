@@ -168,6 +168,17 @@ tight-end overrides merged onto the base board rather than as copies.
   screen; the engine clamps it at zero internally, because a player who never cracks
   the lineup adds no marginal value to it.
 
+## Rookie picks
+
+Priced off KeepTradeCut's published pick tiers, which are defined on a twelve
+team board — early is a 1-4 finish, mid 5-8, late 9-12. The anchors are laid
+out along the **overall pick number** and interpolated as one continuous curve,
+so a league of any size reads it at its own positions: a ten team league's 2.01
+is overall pick 11 and is worth what the back of a first round is worth.
+
+Each pick is valued across the whole distribution of where its **original**
+owner might finish, never a point estimate. Picks are a long term asset only.
+
 ## Contention is derived, not asked
 
 The timeline at the top of every screen used to be a question put back to the

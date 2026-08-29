@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { rosterEfficiency } from '../../engine/scenario';
 import { startingSlots } from '../../engine/lineup';
-import { blendedValue } from '../../engine/values';
+import { blendedRating, blendedVar } from '../../engine/values';
 import { useStore } from '../../state/store';
 import { useTeamName } from '../useTeamName';
 import { ContentionSlider } from '../components/ContentionSlider';
@@ -131,7 +131,7 @@ export function RosterView() {
       <Panel className="overflow-hidden animate-rise">
         <PanelHeader
           title="Marginal value of every player you own"
-          subtitle="How much the optimal starting total drops if this player disappears. Zero means he cannot crack the lineup, which is correct rather than a rounding artefact."
+          subtitle="How much the optimal starting total drops if this player disappears — zero means he cannot crack the lineup, which is correct rather than a rounding artefact. Sort by VAR to find the roster spots free agency would improve: anything negative is worse than a player nobody in the league has claimed."
         />
         <div className="overflow-x-auto">
           <table className="w-full min-w-[38rem] text-[0.8125rem]">
@@ -142,6 +142,12 @@ export function RosterView() {
                 <th className="px-3 py-2.5 text-right font-medium">Marginal now</th>
                 <th className="px-3 py-2.5 text-right font-medium text-now-400">Win now</th>
                 <th className="px-3 py-2.5 text-right font-medium text-later-400">Long term</th>
+                <th
+                  className="px-3 py-2.5 text-right font-medium"
+                  title="Rating minus the best player at this position nobody in the league has rostered. Negative means the waiver wire already offers better."
+                >
+                  VAR
+                </th>
                 <th className="py-2.5 pr-4 text-right font-medium text-blend-400 sm:pr-5">
                   Blended
                 </th>
@@ -186,13 +192,23 @@ export function RosterView() {
                     />
                   </td>
                   <td className="num px-3 py-2.5 text-right text-now-400">
-                    {value(entry.player.winNow)}
+                    {value(entry.player.winNowRating)}
                   </td>
                   <td className="num px-3 py-2.5 text-right text-later-400">
-                    {value(entry.player.longTerm)}
+                    {value(entry.player.longTermRating)}
+                  </td>
+                  {/* Signed, and the reason this column exists: a negative
+                      number is a roster spot the waiver wire would improve. */}
+                  <td
+                    className={`num px-3 py-2.5 text-right font-medium ${deltaClass(
+                      blendedVar(entry.player, weight),
+                      0.05,
+                    )}`}
+                  >
+                    {signed(blendedVar(entry.player, weight))}
                   </td>
                   <td className="num py-2.5 pr-4 text-right font-semibold text-blend-400 sm:pr-5">
-                    {value(blendedValue(entry.player, weight))}
+                    {value(blendedRating(entry.player, weight))}
                   </td>
                 </tr>
               ))}

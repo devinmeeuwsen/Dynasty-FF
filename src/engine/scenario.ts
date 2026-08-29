@@ -6,6 +6,7 @@ import type {
   ValuedPlayer,
 } from './types';
 import type { RankToValue } from './rank';
+import type { PickBoard } from './pickValues';
 import type { ReplacementLevels } from './types';
 import { optimizeLineup, startingSlots, type LineupPlayer } from './lineup';
 import {
@@ -38,6 +39,8 @@ export interface ScenarioInput {
   picks: DraftPick[];
   settings: EngineSettings;
   longTermCurve: RankToValue;
+  /** Published rookie pick values. Absent in fixtures, which use the curve. */
+  pickBoard?: PickBoard;
   longTermReplacement: ReplacementLevels;
   nextDraftSeason: number;
   season: Omit<
@@ -121,6 +124,7 @@ export function evaluateScenario(input: ScenarioInput): Scenario {
     draftSlots: result.draftSlots,
     teams: rosterIds.length,
     curve: input.longTermCurve,
+    pickBoard: input.pickBoard,
     longTermReplacement: input.longTermReplacement,
     settings: input.settings,
     nextDraftSeason: input.nextDraftSeason,

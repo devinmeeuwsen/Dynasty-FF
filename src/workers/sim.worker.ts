@@ -3,6 +3,7 @@ import type { DraftPick, EngineSettings, LeagueShape, TeamRoster, ValuedPlayer }
 import type { WeekSchedule } from '../engine/schedule';
 import type { TeamStanding } from '../engine/season';
 import { makeCurve } from '../engine/rank';
+import type { PickBoard } from '../engine/pickValues';
 import { evaluateScenario, type Scenario, type ScenarioInput } from '../engine/scenario';
 import { evaluateTrade, type TradeProposal, type TradeResult } from '../engine/trade';
 import type { ReplacementLevels } from '../engine/types';
@@ -23,6 +24,12 @@ export interface SimRequestBase {
   settings: EngineSettings;
   longTermReplacement: ReplacementLevels;
   nextDraftSeason: number;
+  /**
+   * Plain data, so it crosses the worker boundary by structured clone. The
+   * rank curve next to it cannot — it is a function — which is why that one is
+   * rebuilt inside the worker from its settings instead of being sent.
+   */
+  pickBoard?: PickBoard;
   season: {
     remainingSchedule: WeekSchedule[];
     standings: TeamStanding[];
@@ -54,6 +61,7 @@ function toScenarioInput(request: SimRequestBase): ScenarioInput {
     }),
     longTermReplacement: request.longTermReplacement,
     nextDraftSeason: request.nextDraftSeason,
+    pickBoard: request.pickBoard,
     season: request.season,
   };
 }

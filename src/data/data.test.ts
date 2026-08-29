@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { matchRankings, normalizeName } from './names';
 import { parseRankingText, listFromText } from './rankings/parse';
-import { bundledRankingSet, bundledPlayerPool } from './rankings/bundled';
+import { bundledPickBoard, bundledRankingSet, bundledPlayerPool } from './rankings/bundled';
 import { assemblePlayers } from './assemble';
 import { rankingFormatFor, tePremiumFor, toRankingFormat } from './rankings/types';
-import { toLeagueShape } from './league';
+import { pickSeasons, toLeagueShape } from './league';
 import { toSlotKind } from './sleeper';
 import type { SleeperLeagueSummary } from './sleeper';
 import { blendedRating, blendedVar, runPipeline } from '../engine/values';
+import { valuePick } from '../engine/picks';
+import { overallPick, pickSlotRating, tierAnchors } from '../engine/pickValues';
+import { makeCurve } from '../engine/rank';
 import { DEFAULT_SETTINGS, POSITIONS } from '../engine/types';
 import type { SlotKind } from '../engine/types';
 
@@ -500,6 +503,162 @@ describe('league format decides which board a player is priced on', () => {
     expect(high.result.longTerm.replacement.levels.TE).toBeGreaterThan(
       base.result.longTerm.replacement.levels.TE,
     );
+  });
+});
+
+describe('which rookie drafts still have picks to trade', () => {
+  const league = (season: number, status: string) =>
+    pickSeasons({ season, status } as Parameters<typeof pickSeasons>[0]);
+
+  it('drops the current year once the rookie draft has happened', () => {
+    // in_season means the draft is done — those picks are players now, and a
+    // league that has already drafted was still being shown them.
+    for (const status of ['in_season', 'complete', 'post_season']) {
+      expect(league(2026, status), status).not.toContain(2026);
+      expect(league(2026, status)[0], status).toBe(2027);
+    }
+  });
+
+  it('keeps the current year while the draft is still ahead', () => {
+    for (const status of ['pre_draft', 'drafting']) {
+      expect(league(2026, status)[0], status).toBe(2026);
+    }
+  });
+
+  it('covers three drafts, because dynasty leagues trade three years out', () => {
+    expect(league(2026, 'in_season')).toEqual([2027, 2028, 2029]);
+    expect(league(2026, 'pre_draft')).toEqual([2026, 2027, 2028]);
+  });
+});
+
+describe('rookie picks are priced off the market, not a curve', () => {
+  const board = bundledPickBoard('superflex')!;
+  const teams = 12;
+  const NEXT = 2027;
+  const rate = (season: number, round: number, slot: number) =>
+    pickSlotRating(board, NEXT, season, round, slot, teams);
+
+  it('publishes a usable board with at least two future years', () => {
+    expect(board).toBeTruthy();
+    expect(Object.keys(board.years).length).toBeGreaterThanOrEqual(2);
+    // A draft further out must be worth less, or extrapolation runs backwards.
+    expect(board.yearDecay).toBeGreaterThan(0.4);
+    expect(board.yearDecay).toBeLessThan(1);
+  });
+
+  it('places the tiers on the twelve team board they are defined against', () => {
+    // Early is a 1-4 finish, mid 5-8, late 9-12 — so the anchors sit at the
+    // centre of each block, and they continue down the overall pick number
+    // rather than resetting each round.
+    expect(tierAnchors(1)).toEqual([2.5, 6.5, 10.5]);
+    expect(tierAnchors(2)).toEqual([14.5, 18.5, 22.5]);
+    expect(overallPick(2, 1, 10)).toBe(11);
+    expect(overallPick(2, 1, 12)).toBe(13);
+  });
+
+  it('prices a smaller league off absolute draft position, not round position', () => {
+    // A ten team league's 2.01 is overall pick 11, which on a twelve team
+    // board is the back of the first round — so it must be worth about that,
+    // not what an early second is worth.
+    const tenTeamSecond = pickSlotRating(board, NEXT, NEXT, 2, 1, 10);
+    const twelveTeamLateFirst = pickSlotRating(board, NEXT, NEXT, 1, 11, 12);
+    const twelveTeamEarlySecond = pickSlotRating(board, NEXT, NEXT, 2, 1, 12);
+
+    expect(tenTeamSecond).toBeCloseTo(twelveTeamLateFirst, 6);
+    expect(tenTeamSecond).toBeGreaterThan(twelveTeamEarlySecond * 1.1);
+
+    // And the same pick number is worth the same thing whatever route you
+    // take to it: overall 11 is overall 11.
+    expect(pickSlotRating(board, NEXT, NEXT, 1, 11, 12)).toBeCloseTo(
+      pickSlotRating(board, NEXT, NEXT, 2, 1, 10),
+      6,
+    );
+  });
+
+  it('falls monotonically down a round, down the rounds, and out the years', () => {
+    for (let slot = 2; slot <= teams; slot++) {
+      expect(rate(NEXT, 1, slot)).toBeLessThan(rate(NEXT, 1, slot - 1));
+    }
+    // Continuous across the round boundary too: a 1.12 must beat a 2.01.
+    expect(rate(NEXT, 2, 1)).toBeLessThan(rate(NEXT, 1, teams));
+    for (let round = 2; round <= 5; round++) {
+      expect(rate(NEXT, round, 1)).toBeLessThan(rate(NEXT, round - 1, 1));
+    }
+    // Including the extrapolated year past the end of the published board.
+    for (const year of [NEXT + 1, NEXT + 2, NEXT + 3]) {
+      expect(rate(year, 1, 1)).toBeLessThan(rate(year - 1, 1, 1));
+    }
+  });
+
+  it('prices the top of a round above the published early anchor', () => {
+    // The anchor is the centre of the early third, so a 1.01 has to beat it.
+    const early = board.years[String(NEXT)]['1'].early;
+    expect(rate(NEXT, 1, 1)).toBeGreaterThan(early);
+    expect(rate(NEXT, 1, teams)).toBeLessThan(board.years[String(NEXT)]['1'].late);
+  });
+
+  it('weights every draft slot by how likely the pick is to land there', () => {
+    // The stated mechanic: a team 50% to finish last contributes half a 1.01.
+    const rosterIds = Array.from({ length: teams }, (_, i) => i + 1);
+    const row = new Array(teams).fill(0);
+    row[0] = 0.5;
+    row[1] = 0.3;
+    row[2] = 0.2;
+    const draftSlots = {
+      rosterIds,
+      rows: rosterIds.map((_, i) => (i === 0 ? row : new Array(teams).fill(1 / teams))),
+    };
+    const valuation = valuePick(
+      { season: NEXT, round: 1, originalRosterId: 1, ownerRosterId: 5 },
+      {
+        draftSlots,
+        teams,
+        pickBoard: board,
+        curve: makeCurve({ lambda: DEFAULT_SETTINGS.lambda, kind: DEFAULT_SETTINGS.curve }),
+        longTermReplacement: { QB: 0, RB: 0, WR: 0, TE: 0 },
+        settings: DEFAULT_SETTINGS,
+        nextDraftSeason: NEXT,
+      },
+    );
+    const byHand =
+      0.5 * rate(NEXT, 1, 1) + 0.3 * rate(NEXT, 1, 2) + 0.2 * rate(NEXT, 1, 3);
+    expect(valuation.rating).toBeCloseTo(byHand, 9);
+
+    // The range must be able to start at the very first slot. It could not:
+    // the sentinel for "not found yet" was itself slot 1.
+    expect(valuation.slotRange[0]).toBe(1);
+    expect(valuation.expectedSlot).toBeCloseTo(1.7, 9);
+  });
+
+  it('values a pick from the original owner, never the holder', () => {
+    const rosterIds = Array.from({ length: teams }, (_, i) => i + 1);
+    const worst = new Array(teams).fill(0);
+    worst[0] = 1;
+    const best = new Array(teams).fill(0);
+    best[teams - 1] = 1;
+    const draftSlots = {
+      rosterIds,
+      rows: rosterIds.map((_, i) => (i === 0 ? worst : best)),
+    };
+    const ctx = {
+      draftSlots,
+      teams,
+      pickBoard: board,
+      curve: makeCurve({ lambda: DEFAULT_SETTINGS.lambda, kind: DEFAULT_SETTINGS.curve }),
+      longTermReplacement: { QB: 0, RB: 0, WR: 0, TE: 0 },
+      settings: DEFAULT_SETTINGS,
+      nextDraftSeason: NEXT,
+    };
+    // Same holder, different originator: only the originator may matter.
+    const fromWorst = valuePick(
+      { season: NEXT, round: 1, originalRosterId: 1, ownerRosterId: 7 },
+      ctx,
+    );
+    const fromBest = valuePick(
+      { season: NEXT, round: 1, originalRosterId: 2, ownerRosterId: 7 },
+      ctx,
+    );
+    expect(fromWorst.rating).toBeGreaterThan(fromBest.rating * 1.3);
   });
 });
 

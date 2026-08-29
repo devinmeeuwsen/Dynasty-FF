@@ -231,11 +231,37 @@ if ((await addButtons.count()) === 0) {
     );
   } else {
     await addButtons.first().click();
-    await page.waitForTimeout(500);
-    const chip = (await page.locator('ul li button').first().innerText()).replace(/\s+/g, ' ');
-    if (!/[+\u2212-]\d/.test(chip)) {
-      errs.push(`trade builder: selected chip shows no value over replacement (${chip})`);
+    await page.waitForTimeout(600);
+    const card = (await page.locator('main ul li').first().innerText()).replace(/\s+/g, ' ');
+    // The card uppercases its labels in CSS, so compare case-insensitively.
+    const flat = card.toLowerCase();
+    for (const attr of ['rating', 'var', 'win now', 'long term']) {
+      if (!flat.includes(attr)) {
+        errs.push(`trade builder: selected player card is missing ${attr} (${card.slice(0, 120)})`);
+      }
     }
+    console.log('  selected player card:', card.slice(0, 160));
+  }
+
+  // Picks: the seasons offered, and that each carries a value.
+  const picksTab = page.locator('button', { hasText: /^Picks \(/ }).first();
+  if (await picksTab.count()) {
+    await picksTab.click();
+    await page.waitForTimeout(800);
+    const rows = await page.locator('main ul li').allInnerTexts();
+    const labels = rows.map((r) => r.replace(/\s+/g, ' ').trim()).filter((r) => /\d{4} \d(st|nd|rd|th) Rd/.test(r));
+    const years = [...new Set(labels.map((l) => l.slice(0, 4)))].sort();
+    console.log(`  pick rows: ${labels.length}, seasons: ${years.join(', ')}`);
+    console.log('  first pick:', labels[0]?.slice(0, 90));
+    if (years.includes('2026')) errs.push('picks: 2026 still listed after the rookie draft');
+    for (const want of ['2027', '2028', '2029']) {
+      if (!years.includes(want)) errs.push(`picks: ${want} missing from the tradeable seasons`);
+    }
+    if (labels[0] && !/\d+\.\d/.test(labels[0])) {
+      errs.push(`picks: no value shown on a pick row (${labels[0].slice(0, 90)})`);
+    }
+  } else {
+    errs.push('trade builder: no Picks tab');
   }
 }
 

@@ -1,6 +1,7 @@
 import type { Position } from '../../engine/types';
-import type { QbFormat, RankingList, RankingSet, RankingSource, TePremium } from './types';
-import { toRankingFormat } from './types';
+import type { QbFormat, RankingFormat, RankingList, RankingSet, RankingSource, TePremium } from './types';
+import { toRankingFormat, qbFormatOf } from './types';
+import type { PickBoard, PickTiers } from '../../engine/pickValues';
 import snapshot from './snapshots/bundled.json';
 
 type PlayerRow = [name: string, position: string, team: string | null, age: number | null];
@@ -22,6 +23,9 @@ interface Snapshot {
   boards: Record<string, [key: string, rating: number][]>;
   /** Tight ends only, keyed `${horizon}.${qb}.${variant}`. */
   teOverrides: Record<string, [key: string, rating: number][]>;
+  /** Rookie pick tier anchors, by quarterback format then year then round. */
+  rookiePicks: Record<string, Record<string, Record<string, PickTiers>>>;
+  pickYearDecay: Record<string, number>;
 }
 
 const data = snapshot as unknown as Snapshot;
@@ -120,4 +124,19 @@ export function bundledPlayerPool() {
     team,
     age,
   }));
+}
+
+/**
+ * The rookie pick board for a league's format.
+ *
+ * Quarterback demand changes what a pick is worth — in superflex a first is
+ * competing with veteran quarterbacks for the same trade dollars — so the pick
+ * board follows the same format the players do. A tight end premium does not
+ * move picks, so the premium half of the format is ignored here.
+ */
+export function bundledPickBoard(format: RankingFormat): PickBoard | undefined {
+  const qb = qbFormatOf(format);
+  const years = data.rookiePicks?.[qb];
+  if (!years || Object.keys(years).length === 0) return undefined;
+  return { years, yearDecay: data.pickYearDecay?.[qb] ?? 0.85 };
 }

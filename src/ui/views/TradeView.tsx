@@ -7,7 +7,7 @@ import { useTeamName } from '../useTeamName';
 import { ContentionSlider } from '../components/ContentionSlider';
 import { FinishMatrixHeatmap } from '../components/FinishMatrix';
 import { PlayerTable } from '../components/PlayerTable';
-import { blendedVar } from '../../engine/values';
+import { blendedRating, blendedVar } from '../../engine/values';
 import {
   Button,
   Callout,
@@ -149,6 +149,10 @@ function SideBuilder({
   const allPicks = useStore((s) => s.picks);
   const weight = useStore((s) => s.settings.contentionWeight);
   const teamName = useTeamName();
+  const teams = useStore((s) => s.shape.teams);
+  // Baseline valuations, so a pick shows what it is worth before the trade is
+  // evaluated rather than only after.
+  const pickValuations = useStore((s) => s.scenario?.pickValues);
   const [tab, setTab] = useState<'players' | 'picks'>('players');
 
   const roster = rosters.find((r) => r.rosterId === side.rosterId);
@@ -191,38 +195,111 @@ function SideBuilder({
         }
       />
 
+      {/* Selected assets get the full attribute set rather than a chip.
+          Once something is actually in the deal, every number the model has
+          assigned it is the thing worth reading — that is the moment the
+          question stops being "who is available" and becomes "what am I
+          actually giving up". */}
       {selectedPlayers.length + selectedPicks.length > 0 ? (
-        <ul className="flex flex-wrap gap-1.5 border-b border-white/[0.06] px-4 py-3 sm:px-5">
-          {selectedPlayers.map((p) => {
-            const vor = blendedVar(p, weight);
-            return (
-              <li key={p.id}>
+        <ul className="divide-y divide-white/[0.05] border-b border-white/[0.06]">
+          {selectedPlayers.map((p) => (
+            <li key={p.id} className="px-4 py-3 sm:px-5">
+              <div className="flex items-start gap-2.5">
+                <PositionChip position={p.position} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[0.875rem] font-semibold text-ink-100">
+                    {p.name}
+                  </div>
+                  <div className="num text-[0.6875rem] text-ink-500">
+                    {p.team ?? 'FA'}
+                    {p.age != null ? ` · ${p.age}yo` : ''}
+                    {p.ownerRosterId != null ? ` · ${teamName(p.ownerRosterId)}` : ' · waivers'}
+                  </div>
+                </div>
                 <button
                   onClick={() => onChange({ ...side, players: toggle(side.players, p.id) })}
-                  title={`Value over replacement at this timeline: ${signed(vor)}`}
-                  className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] py-1 pl-1.5 pr-2 text-[0.75rem] text-ink-100 transition hover:border-bad-500/40"
+                  aria-label={`Remove ${p.name} from this side`}
+                  className="focus-ring rounded-lg border border-white/10 px-2 py-0.5 text-[0.75rem] text-ink-400 transition hover:border-bad-500/40 hover:text-ink-200"
                 >
-                  <PositionChip position={p.position} />
-                  {p.name}
-                  {/* The column the table gave up, returned where it matters:
-                      what this specific player is worth over the wire. */}
-                  <span className={`num ${deltaClass(vor, 0.05)}`}>{signed(vor)}</span>
-                  <span className="text-ink-500">×</span>
+                  ×
                 </button>
+              </div>
+              <dl className="num mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5 text-[0.6875rem]">
+                <Attr label="Rating" value={value(blendedRating(p, weight))} tone="text-blend-400" />
+                <Attr
+                  label="VAR"
+                  value={signed(blendedVar(p, weight))}
+                  tone={deltaClass(blendedVar(p, weight), 0.05)}
+                />
+                <Attr
+                  label="Gap"
+                  value={signed(p.timelineGap)}
+                  tone={deltaClass(p.timelineGap, 0.5)}
+                />
+                <Attr label="Win now" value={value(p.winNowRating)} tone="text-now-400" />
+                <Attr label="Long term" value={value(p.longTermRating)} tone="text-later-400" />
+                <Attr
+                  label="Over wire"
+                  value={`${signed(p.winNowVar)} / ${signed(p.longTermVar)}`}
+                  tone="text-ink-300"
+                />
+              </dl>
+            </li>
+          ))}
+          {selectedPicks.map((pick) => {
+            const valuation = pickValuations?.get(pickKey(pick));
+            return (
+              <li key={pickKey(pick)} className="px-4 py-3 sm:px-5">
+                <div className="flex items-start gap-2.5">
+                  <span className="rounded-md bg-later-500/15 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-later-400 ring-1 ring-later-500/30">
+                    Pick
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[0.875rem] font-semibold text-ink-100">
+                      {pickLabel(pick, teamName(pick.originalRosterId))}
+                    </div>
+                    <div className="num text-[0.6875rem] text-ink-500">
+                      long term only · lands where {teamName(pick.originalRosterId)} finishes
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onChange({ ...side, picks: toggle(side.picks, pickKey(pick)) })}
+                    aria-label={`Remove ${pickLabel(pick)} from this side`}
+                    className="focus-ring rounded-lg border border-white/10 px-2 py-0.5 text-[0.75rem] text-ink-400 transition hover:border-bad-500/40 hover:text-ink-200"
+                  >
+                    ×
+                  </button>
+                </div>
+                {valuation ? (
+                  <dl className="num mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5 text-[0.6875rem]">
+                    <Attr label="Rating" value={value(valuation.rating)} tone="text-blend-400" />
+                    <Attr
+                      label="VAR"
+                      value={signed(valuation.value)}
+                      tone={deltaClass(valuation.value, 0.05)}
+                    />
+                    <Attr label="Win now" value="0.0" tone="text-ink-500" />
+                    <Attr
+                      label="Likely slot"
+                      value={formatSlot(Math.round(
+                        (pick.round - 1) * teams + valuation.expectedSlot,
+                      ), teams)}
+                      tone="text-ink-300"
+                    />
+                    <Attr
+                      label="Range"
+                      value={`${formatSlot(valuation.slotRange[0], teams)}–${formatSlot(valuation.slotRange[1], teams)}`}
+                      tone="text-ink-300"
+                    />
+                  </dl>
+                ) : (
+                  <p className="mt-2 text-[0.6875rem] text-ink-500">
+                    Value appears once the baseline simulation has run.
+                  </p>
+                )}
               </li>
             );
           })}
-          {selectedPicks.map((pick) => (
-            <li key={pickKey(pick)}>
-              <button
-                onClick={() => onChange({ ...side, picks: toggle(side.picks, pickKey(pick)) })}
-                className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] px-2 py-1 text-[0.75rem] text-ink-100 transition hover:border-bad-500/40"
-              >
-                {pickLabel(pick, teamName(pick.originalRosterId))}
-                <span className="text-ink-500">×</span>
-              </button>
-            </li>
-          ))}
         </ul>
       ) : null}
 
@@ -277,13 +354,21 @@ function SideBuilder({
               return (
                 <li key={key} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[0.8125rem] font-medium text-ink-100">
-                      {pick.season} round {pick.round}
+                    <div className="truncate text-[0.8125rem] font-medium text-ink-100">
+                      {pickLabel(pick, teamName(pick.originalRosterId))}
                     </div>
-                    <div className="text-[0.6875rem] text-ink-400">
-                      {own ? 'own pick' : `via ${teamName(pick.originalRosterId)}`}
+                    <div className="num text-[0.6875rem] text-ink-400">
+                      {own ? 'own pick' : 'acquired'}
+                      {pickValuations?.get(key)
+                        ? ` · lands ${formatSlot(pickValuations.get(key)!.slotRange[0], teams)}–${formatSlot(pickValuations.get(key)!.slotRange[1], teams)}`
+                        : ''}
                     </div>
                   </div>
+                  {pickValuations?.get(key) ? (
+                    <div className="num text-right text-[0.8125rem] font-semibold text-later-400">
+                      {value(pickValuations.get(key)!.rating)}
+                    </div>
+                  ) : null}
                   <Button
                     size="sm"
                     variant={side.picks.includes(key) ? 'primary' : 'ghost'}
@@ -381,20 +466,31 @@ function TradeResultPanels({
                 bValue={sideB.payoutDelta}
               />
               <MetricRow
-                label="Long term value"
-                hint="Sum of long term values gained minus lost. An independent measurement, never derived by subtraction."
+                label="Long term — players"
+                hint="Long term value of players gained minus lost. An independent measurement, never derived by subtraction."
                 a={signed(sideA.longTermDelta)}
                 b={signed(sideB.longTermDelta)}
                 aValue={sideA.longTermDelta}
                 bValue={sideB.longTermDelta}
               />
               <MetricRow
-                label="Draft capital"
-                hint="Every pick this side owns, re-valued against the new finish distributions"
+                label="Long term — picks"
+                hint="Every pick this side owns, re-valued against the new finish distributions. A pick is a long term asset only: a future rookie plays no games this season."
                 a={signed(sideA.draftCapitalDelta)}
                 b={signed(sideB.draftCapitalDelta)}
                 aValue={sideA.draftCapitalDelta}
                 bValue={sideB.draftCapitalDelta}
+              />
+              {/* Split above because composition matters, totalled here
+                  because the split otherwise leaves the reader adding two
+                  numbers to answer the obvious question. */}
+              <MetricRow
+                label="Long term — combined"
+                hint="Players plus picks. The whole change to this side's future, in one number."
+                a={signed(sideA.longTermDelta + sideA.draftCapitalDelta)}
+                b={signed(sideB.longTermDelta + sideB.draftCapitalDelta)}
+                aValue={sideA.longTermDelta + sideA.draftCapitalDelta}
+                bValue={sideB.longTermDelta + sideB.draftCapitalDelta}
               />
               <tr className="border-b border-white/[0.035]">
                 <td className="py-2.5 pl-4 text-ink-300 sm:pl-5">Projected finish</td>
@@ -595,6 +691,23 @@ function AssetList({
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** `1.04` from an overall slot, matching how picks are spoken about. */
+function formatSlot(overall: number, teams: number): string {
+  const round = Math.floor((overall - 1) / teams) + 1;
+  const slot = ((overall - 1) % teams) + 1;
+  return `${round}.${String(slot).padStart(2, '0')}`;
+}
+
+/** One labelled number inside a selected asset's attribute grid. */
+function Attr({ label, value, tone }: { label: string; value: string; tone: string }) {
+  return (
+    <div>
+      <dt className="text-[0.625rem] uppercase tracking-[0.06em] text-ink-500">{label}</dt>
+      <dd className={`font-semibold ${tone}`}>{value}</dd>
     </div>
   );
 }

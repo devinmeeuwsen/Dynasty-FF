@@ -18,11 +18,21 @@ import type { WeekSchedule } from '../engine/schedule';
 import type { TeamStanding } from '../engine/season';
 
 import { assemblePlayers, type AssembleResult } from '../data/assemble';
-import { bundledPlayerPool, bundledRankingSet, bundledSource } from '../data/rankings/bundled';
+import {
+  bundledPickBoard,
+  bundledPlayerPool,
+  bundledRankingSet,
+  bundledSource,
+} from '../data/rankings/bundled';
 import { remoteSource } from '../data/rankings/remote';
 import type { RankingSet, RankingSource } from '../data/rankings/types';
 import { rankingFormatFor } from '../data/rankings/types';
-import { loadLeagueSnapshot, playerPool, type LeagueSnapshot } from '../data/league';
+import {
+  loadLeagueSnapshot,
+  pickSeasons,
+  playerPool,
+  type LeagueSnapshot,
+} from '../data/league';
 import {
   getLeagues,
   getNflState,
@@ -482,10 +492,6 @@ export const useStore = create<State & Actions>((set, get) => ({
 }));
 
 /** The next two draft classes, at minimum. */
-export function pickSeasons(league: LeagueSnapshot): number[] {
-  const base = league.status === 'complete' ? league.season + 1 : league.season;
-  return [base, base + 1];
-}
 
 function buildRequest(state: State) {
   const league = state.league;
@@ -498,6 +504,7 @@ function buildRequest(state: State) {
     longTermReplacement:
       state.pipeline?.longTerm.replacement.levels ?? { QB: 0, RB: 0, WR: 0, TE: 0 },
     nextDraftSeason: league ? pickSeasons(league)[0] : new Date().getFullYear() + 1,
+    pickBoard: bundledPickBoard(rankingFormatFor(state.shape)),
     season: {
       remainingSchedule:
         state.schedule.length > 0
@@ -551,3 +558,5 @@ export const selectTeamName = (state: State, rosterId: number) =>
   state.league?.teamNames.get(rosterId) ??
   state.rosters.find((r) => r.rosterId === rosterId)?.teamName ??
   `Roster ${rosterId}`;
+
+export { pickSeasons };

@@ -29,6 +29,13 @@ const OUT = join(HERE, '..', 'src', 'data', 'rankings', 'snapshots', 'bundled.js
 
 const POSITIONS = new Set(['QB', 'RB', 'WR', 'TE']);
 
+/** KeepTradeCut's own position code for a rookie draft pick. */
+const PICK_POSITION = 'RDP';
+
+/** `2027 Early 1st` -> year 2027, round 1, tier early. */
+const PICK_NAME = /^(\d{4})\s+(Early|Mid|Late)\s+(\d)(?:st|nd|rd|th)$/i;
+const TIERS = ['early', 'mid', 'late'];
+
 /** KTC pins its best asset to 9999. Fixed, so ratings do not drift on refresh. */
 const KTC_MAX = 9999;
 
@@ -200,6 +207,80 @@ function crossBoardCorrelation(dynastyBoard, redraftBoard) {
   return { r: num / Math.sqrt(dx * dy), n };
 }
 
+/**
+ * Rookie pick values, which the market prices separately from players.
+ *
+ * KeepTradeCut publishes three tiers per round per year — early, mid, late —
+ * rather than a value per draft slot. Those three anchors are stored as
+ * published; interpolating them across a league's actual slot count is the
+ * engine's job, because it depends on how many teams the league has.
+ *
+ * Picks carry no `mflid` (every one of them reports 0), so they are keyed by
+ * year, round and tier instead. Keying them the way players are keyed would
+ * collide all thirty six onto one entry.
+ */
+function rookiePicks(rows, formatKey) {
+  const out = {};
+  for (const row of rows) {
+    if (row.position !== PICK_POSITION) continue;
+    const match = PICK_NAME.exec(String(row.playerName).trim());
+    if (!match) continue;
+    const [, year, tier, round] = match;
+    const rating = toRating(row[formatKey]?.value);
+    if (rating == null) continue;
+    out[year] ??= {};
+    out[year][round] ??= {};
+    out[year][round][tier.toLowerCase()] = rating;
+  }
+  // Drop any year/round that did not produce all three tiers: a partial set
+  // would interpolate off a shape the market never published.
+  for (const [year, rounds] of Object.entries(out)) {
+    for (const [round, tiers] of Object.entries(rounds)) {
+      if (TIERS.some((t) => typeof tiers[t] !== 'number')) delete rounds[round];
+    }
+    if (Object.keys(rounds).length === 0) delete out[year];
+  }
+  return out;
+}
+
+/**
+ * How much a draft loses per year of distance, measured rather than assumed.
+ *
+ * Measured across the two FURTHEST-OUT published years only. The nearest year
+ * on the board is often a draft that has already happened — its picks are
+ * players now and its values have collapsed — so a ratio involving it runs
+ * backwards. Including one here produced a decay above 1.0, which would have
+ * had a 2029 pick worth more than a 2028 one.
+ */
+function yearDecayOf(picks) {
+  const years = Object.keys(picks)
+    .map(Number)
+    .sort((a, b) => a - b);
+  if (years.length < 2) return 0.85;
+
+  const from = picks[String(years[years.length - 2])];
+  const to = picks[String(years[years.length - 1])];
+  const ratios = [];
+  for (const round of Object.keys(to)) {
+    if (!from[round]) continue;
+    for (const tier of TIERS) {
+      const a = from[round][tier];
+      const b = to[round][tier];
+      if (a > 0 && b > 0) ratios.push(b / a);
+    }
+  }
+  if (ratios.length === 0) return 0.85;
+  ratios.sort((a, b) => a - b);
+  const median = ratios[ratios.length >> 1];
+  if (!(median > 0.4 && median < 1)) {
+    throw new Error(
+      `rookie pick year decay came out at ${median.toFixed(3)} between ${years[years.length - 2]} ` +
+        `and ${years[years.length - 1]} — a draft further away should be worth less, not more`,
+    );
+  }
+  return Math.round(median * 1000) / 1000;
+}
+
 async function main() {
   const fetched = {};
   for (const board of BOARDS) {
@@ -245,6 +326,28 @@ async function main() {
     if (orphan) throw new Error(`${key}: entry ${orphan[0]} has no player record`);
   }
 
+  // Picks are a long term asset only, so they are read off the dynasty board
+  // and never the redraft one.
+  const picks = {
+    standard: rookiePicks(fetched.dynasty, 'oneQBValues'),
+    superflex: rookiePicks(fetched.dynasty, 'superflexValues'),
+  };
+  for (const [qb, table] of Object.entries(picks)) {
+    const years = Object.keys(table).sort();
+    if (years.length < 2) {
+      throw new Error(`rookie picks (${qb}): only ${years.length} year(s) published — cannot extend`);
+    }
+    console.log(
+      `rookie picks ${qb.padEnd(9)} years ${years.join(', ')} — ` +
+        `${Object.values(table).reduce((n, r) => n + Object.keys(r).length, 0)} year/round pairs`,
+    );
+  }
+  const pickYearDecay = {
+    standard: yearDecayOf(picks.standard),
+    superflex: yearDecayOf(picks.superflex),
+  };
+  console.log(`rookie pick year-over-year decay: ${JSON.stringify(pickYearDecay)}`);
+
   const { r, n } = crossBoardCorrelation(boards['dynasty.superflex'], boards['redraft.superflex']);
   console.log(`cross-board correlation r=${r.toFixed(3)} over ${n} shared players`);
   if (r < 0.5) {
@@ -268,6 +371,9 @@ async function main() {
     boards,
     // Tight ends only. Merged over the matching base board at load time.
     teOverrides,
+    // Rookie draft picks: three tier anchors per year and round.
+    rookiePicks: picks,
+    pickYearDecay,
   };
 
   mkdirSync(dirname(OUT), { recursive: true });
