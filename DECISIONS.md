@@ -324,3 +324,37 @@ schedule loader uses: only `pre_draft` and `drafting` still have this year's
 picks outstanding. The range also went from two seasons to three, because
 dynasty leagues routinely trade three years out and stopping at two silently
 hid every pick beyond next season.
+
+## Redraft value, and the three scalings that did not work
+
+Rating is KeepTradeCut's dynasty value. Redraft is FantasyPros expert consensus
+ORDER — a hundred analysts updated daily beat a trade market at predicting one
+season — priced on the dynasty ladder read by rank position. Long term is the
+difference.
+
+That the two share one distribution is the whole point, because a difference
+between differently-scaled numbers measures the scales rather than the player.
+Three attempts proved it:
+
+1. **Fitted exponential on the redraft market.** Intercept 84.3 against the
+   dynasty board's 100, so the best redraft asset was capped sixteen points
+   below the best dynasty one and anyone elite in both read as future leaning.
+   Median difference +17.8, ninety percent of the league on one side of zero.
+2. **KeepTradeCut's own redraft ladder.** Fixed the ceiling, kept the cliff.
+3. **A hand-shaped logistic** — flat top, curve, flat tail, as the shape
+   intuitively should be. Gave the flat shoulder but collapsed to a floor of 6
+   by rank 200 where dynasty ratings are near 29, pushing the median to +10 and
+   reading almost every deep player as a future asset.
+
+What works is the dynasty ladder with a cubic shoulder over its top eight ranks.
+Median 0.0, 39% of players inside the ±3 balanced band, and the shoulder stops
+the ladder's 99.9-to-92.3 cliff from separating players who are interchangeable
+for this season.
+
+**FantasyPros sourcing.** Their `robots.txt` permits these pages — only
+`/ajax/`, `/api/`, `/json/`, `/xml/` and `/nfl/ranker/` are disallowed — and
+their `llms.txt` advertises the rankings pages to agents by name. The data is
+embedded in the allowed page server side, so no disallowed endpoint is touched.
+Fetched at build time only. **I could not read their Terms of Use**, which is a
+JavaScript-rendered page this environment cannot execute, so that check remains
+outstanding and is the one thing worth confirming before this sees real traffic.

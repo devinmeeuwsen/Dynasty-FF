@@ -33,7 +33,7 @@ function value(shapeOpts: Parameters<typeof makeShape>[0], universeOpts = {}) {
 function bestAt(result: ReturnType<typeof runPipeline>, position: Position) {
   return result.players
     .filter((p) => p.position === position)
-    .sort((a, b) => b.winNow - a.winNow)[0];
+    .sort((a, b) => b.lineupValue - a.lineupValue)[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -46,13 +46,13 @@ describe('1. one quarterback versus superflex', () => {
     const qbOne = bestAt(oneQb, 'QB');
     const qbSf = bestAt(superflex, 'QB');
 
-    expect(qbSf.winNow).toBeGreaterThan(qbOne.winNow * 1.5);
+    expect(qbSf.lineupValue).toBeGreaterThan(qbOne.lineupValue * 1.5);
 
-    const sfOrder = [...superflex.players].sort((a, b) => b.winNow - a.winNow);
+    const sfOrder = [...superflex.players].sort((a, b) => b.lineupValue - a.lineupValue);
     const qbRankSf = sfOrder.findIndex((p) => p.position === 'QB');
     expect(qbRankSf).toBeLessThan(5); // top handful overall
 
-    const oneOrder = [...oneQb.players].sort((a, b) => b.winNow - a.winNow);
+    const oneOrder = [...oneQb.players].sort((a, b) => b.lineupValue - a.lineupValue);
     const qbRankOne = oneOrder.findIndex((p) => p.position === 'QB');
     expect(qbRankOne).toBeGreaterThan(15);
   });
@@ -64,7 +64,7 @@ describe('1. one quarterback versus superflex', () => {
     // DECISIONS.md.
     const oneQb = value({ starters: STANDARD_STARTERS });
     const sameRanksSf = value({ starters: SUPERFLEX_STARTERS });
-    const ratio = bestAt(sameRanksSf, 'QB').winNow / bestAt(oneQb, 'QB').winNow;
+    const ratio = bestAt(sameRanksSf, 'QB').lineupValue / bestAt(oneQb, 'QB').lineupValue;
     expect(ratio).toBeGreaterThan(1);
     expect(ratio).toBeLessThan(1.2);
   });
@@ -82,9 +82,9 @@ describe('2. shrinking the bench', () => {
     }
 
     const share = (r: ReturnType<typeof runPipeline>) => {
-      const total = r.players.reduce((a, p) => a + p.winNow, 0);
-      const top = [...r.players].sort((a, b) => b.winNow - a.winNow).slice(0, 24);
-      return top.reduce((a, p) => a + p.winNow, 0) / total;
+      const total = r.players.reduce((a, p) => a + p.lineupValue, 0);
+      const top = [...r.players].sort((a, b) => b.lineupValue - a.lineupValue).slice(0, 24);
+      return top.reduce((a, p) => a + p.lineupValue, 0) / total;
     };
     expect(share(shallow)).toBeGreaterThan(share(deep));
   });
@@ -113,12 +113,12 @@ describe('4. the waiver wire is worth exactly zero', () => {
     for (const pos of POSITIONS) {
       const freeAgents = result.players
         .filter((p) => p.position === pos && p.ownerRosterId === null)
-        .sort((a, b) => b.winNowRaw - a.winNowRaw);
-      expect(freeAgents[0].winNow).toBe(0);
-      expect(freeAgents[0].longTerm).toBe(0);
+        .sort((a, b) => b.redraft - a.redraft);
+      expect(freeAgents[0].lineupValue).toBe(0);
+      expect(freeAgents[0].assetValue).toBe(0);
       for (const fa of freeAgents) {
-        expect(fa.winNow).toBe(0);
-        expect(fa.longTerm).toBe(0);
+        expect(fa.lineupValue).toBe(0);
+        expect(fa.assetValue).toBe(0);
       }
     }
   });
@@ -129,7 +129,7 @@ describe('4. the waiver wire is worth exactly zero', () => {
       for (const pos of POSITIONS) {
         const replacementId = result.winNow.replacement.players[pos] as string;
         const player = result.players.find((p) => p.id === replacementId);
-        expect(player?.winNow).toBe(0);
+        expect(player?.lineupValue).toBe(0);
       }
     }
   });
@@ -193,29 +193,30 @@ describe('6. absorption accounting', () => {
 });
 
 describe('7. rookies against ageing producers', () => {
-  it('ranks young players higher on long term than win now, and the reverse for old ones', () => {
+  it('reads young players as future assets and ageing producers as win now', () => {
     const result = value({});
-    const withAge = result.players.filter((p) => p.age != null && p.winNowRaw > 1);
+    const withAge = result.players.filter((p) => p.age != null && p.redraft > 1);
 
     const young = withAge.filter((p) => (p.age as number) <= 23);
     const old = withAge.filter((p) => (p.age as number) >= 30);
     expect(young.length).toBeGreaterThan(10);
     expect(old.length).toBeGreaterThan(10);
 
-    const meanGap = (list: typeof withAge) =>
-      list.reduce((a, p) => a + p.timelineGap, 0) / list.length;
+    const meanLongTerm = (list: typeof withAge) =>
+      list.reduce((a, p) => a + p.longTerm, 0) / list.length;
 
-    // Timeline gap is win now minus long term. Young players are negative
-    // (long term heavy), old players positive (win now heavy).
-    expect(meanGap(young)).toBeLessThan(0);
-    expect(meanGap(old)).toBeGreaterThan(0);
-    expect(meanGap(old)).toBeGreaterThan(meanGap(young));
+    // Long term is rating minus redraft. A young player is worth more as an
+    // asset than as this season's starter, so he reads positive; an ageing
+    // producer is the reverse and reads negative.
+    expect(meanLongTerm(young)).toBeGreaterThan(0);
+    expect(meanLongTerm(old)).toBeLessThan(0);
+    expect(meanLongTerm(young)).toBeGreaterThan(meanLongTerm(old));
 
     // Named examples, checked individually rather than only in aggregate.
-    const rookie = young.sort((a, b) => a.timelineGap - b.timelineGap)[0];
-    const veteran = old.sort((a, b) => b.timelineGap - a.timelineGap)[0];
-    expect(rookie.longTerm).toBeGreaterThan(rookie.winNow);
-    expect(veteran.winNow).toBeGreaterThan(veteran.longTerm);
+    const rookie = [...young].sort((a, b) => b.longTerm - a.longTerm)[0];
+    const veteran = [...old].sort((a, b) => a.longTerm - b.longTerm)[0];
+    expect(rookie.rating).toBeGreaterThan(rookie.redraft);
+    expect(veteran.redraft).toBeGreaterThan(veteran.rating);
   });
 });
 
@@ -226,7 +227,7 @@ describe('8. a player who cannot crack the lineup', () => {
     const lineupPlayers: LineupPlayer[] = roster.playerIds
       .map((id) => values.get(id))
       .filter(Boolean)
-      .map((v) => ({ id: v!.id, position: v!.position, value: v!.winNow }));
+      .map((v) => ({ id: v!.id, position: v!.position, value: v!.lineupValue }));
 
     const optimal = optimizeLineup(lineupPlayers, shape.starters);
     expect(optimal.benchIds.length).toBeGreaterThan(0);
@@ -240,15 +241,15 @@ describe('9. the same player on two different rosters', () => {
   it('produces materially different marginal win now values', () => {
     const { shape, values } = buildHarness();
     const all = [...values.values()];
-    const wrs = all.filter((p) => p.position === 'WR').sort((a, b) => b.winNow - a.winNow);
-    const rbs = all.filter((p) => p.position === 'RB').sort((a, b) => b.winNow - a.winNow);
-    const tes = all.filter((p) => p.position === 'TE').sort((a, b) => b.winNow - a.winNow);
-    const qbs = all.filter((p) => p.position === 'QB').sort((a, b) => b.winNow - a.winNow);
+    const wrs = all.filter((p) => p.position === 'WR').sort((a, b) => b.lineupValue - a.lineupValue);
+    const rbs = all.filter((p) => p.position === 'RB').sort((a, b) => b.lineupValue - a.lineupValue);
+    const tes = all.filter((p) => p.position === 'TE').sort((a, b) => b.lineupValue - a.lineupValue);
+    const qbs = all.filter((p) => p.position === 'QB').sort((a, b) => b.lineupValue - a.lineupValue);
 
     const toLineup = (p: (typeof all)[number]) => ({
       id: p.id,
       position: p.position,
-      value: p.winNow,
+      value: p.lineupValue,
     });
 
     // Stacked at receiver: the top six receivers in the league.
@@ -326,10 +327,10 @@ describe('11a. double stochasticity survives a trade', () => {
     const h = buildHarness({ settings: { simSeasons: 3000 } });
     const wr = [...h.values.values()]
       .filter((p) => p.position === 'WR' && p.ownerRosterId === 2)
-      .sort((a, b) => b.winNow - a.winNow)[0];
+      .sort((a, b) => b.lineupValue - a.lineupValue)[0];
     const rb = [...h.values.values()]
       .filter((p) => p.position === 'RB' && p.ownerRosterId === 1)
-      .sort((a, b) => b.winNow - a.winNow)[0];
+      .sort((a, b) => b.lineupValue - a.lineupValue)[0];
 
     const result = evaluateTrade(h.scenario, {
       a: { rosterId: 1, players: [rb.id], picks: [] },
@@ -418,10 +419,10 @@ describe('14. the league is zero sum', () => {
     // Give roster 9 the two best available free agents at receiver and back.
     const freeAgents = [...h.values.values()]
       .filter((p) => p.ownerRosterId === null)
-      .sort((a, b) => b.winNow - a.winNow);
+      .sort((a, b) => b.lineupValue - a.lineupValue);
     const boosted = [...h.values.values()]
       .filter((p) => p.ownerRosterId === 1)
-      .sort((a, b) => b.winNow - a.winNow)
+      .sort((a, b) => b.lineupValue - a.lineupValue)
       .slice(0, 3)
       .map((p) => p.id);
     void freeAgents;
@@ -472,7 +473,7 @@ describe('15. the improvement effect concentrates on adjacent teams', () => {
     const donors = order.slice(0, 2).map((o) => o.rosterId);
     const talent = [...h.values.values()]
       .filter((p) => p.ownerRosterId != null && donors.includes(p.ownerRosterId))
-      .sort((a, b) => b.winNow - a.winNow)
+      .sort((a, b) => b.lineupValue - a.lineupValue)
       .slice(0, 5)
       .map((p) => p.id);
 
@@ -513,7 +514,7 @@ describe('16. draft capital is conserved across the league', () => {
     const h = buildHarness({ settings: { simSeasons: 6000 } });
     const rb = [...h.values.values()]
       .filter((p) => p.ownerRosterId === 4 && p.position === 'RB')
-      .sort((a, b) => b.winNow - a.winNow)[0];
+      .sort((a, b) => b.lineupValue - a.lineupValue)[0];
     const ownPick = h.picks.find(
       (p) => p.ownerRosterId === 7 && p.originalRosterId === 7 && p.round === 1 && p.season === 2027,
     )!;
@@ -543,7 +544,7 @@ describe('17. identical rosters, different pick holdings', () => {
     // Same rosters, same trade, same everything except who owns which first.
     const talent = [...plain.values.values()]
       .filter((p) => p.ownerRosterId === 1)
-      .sort((a, b) => b.winNow - a.winNow)
+      .sort((a, b) => b.lineupValue - a.lineupValue)
       .slice(0, 3);
 
     const proposal = {
@@ -588,7 +589,7 @@ describe('18. the dead zone, corrected for coupling', () => {
 
     const talent = [...ownPicks.values.values()]
       .filter((p) => p.ownerRosterId === seller)
-      .sort((a, b) => b.winNow - a.winNow)
+      .sort((a, b) => b.lineupValue - a.lineupValue)
       .slice(0, 2)
       .map((p) => p.id);
 

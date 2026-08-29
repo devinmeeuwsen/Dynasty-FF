@@ -84,7 +84,7 @@ function ScatterPanel() {
 
   const shown = useMemo(() => {
     const withValue = pipeline.players.filter(
-      (p) => p.winNowRating > 0 || p.longTermRating > 0,
+      (p) => p.redraft > 0 || p.rating > 0,
     );
     return onlyMine ? withValue.filter((p) => mine.has(p.id)) : withValue;
   }, [pipeline, onlyMine, mine]);
@@ -148,7 +148,7 @@ function FreeAgentPanel() {
   }
 
   const free = pipeline.players.filter((p) => p.ownerRosterId == null);
-  const bestRaw = [...free].sort((a, b) => b.winNowRating - a.winNowRating).slice(0, 4);
+  const bestRaw = [...free].sort((a, b) => b.redraft - a.redraft).slice(0, 4);
 
   return (
     <div className="space-y-4 animate-rise">
@@ -174,7 +174,7 @@ function FreeAgentPanel() {
                 {player.name}
               </div>
               <div className="num mt-1 text-[0.75rem] text-ink-400">
-                rating {value(player.winNowRating, 2)} · VAR {value(player.winNowVar, 2)}
+                rating {value(player.redraft, 2)} · VAR {value(player.redraftVar, 2)}
               </div>
             </li>
           ))}

@@ -7,8 +7,12 @@
  * value says by how much. Two boards carry the two horizons this product needs,
  * each in one-quarterback and superflex flavours:
  *
- *   dynasty-rankings  -> long term value
- *   fantasy-rankings  -> win now value
+ *   dynasty-rankings  -> the player's Rating, the single dynasty number
+ *   fantasy-rankings  -> the shape the redraft curve is fitted to
+ *
+ * Redraft ORDER comes from FantasyPros expert consensus rather than from
+ * KeepTradeCut, because a hundred analysts updated daily beat a crowdsourced
+ * trade market at the question of who scores most this season.
  *
  * Both embed the full board as a `var playersArray = [...]` literal, so one
  * request per board gets everything. This runs at BUILD time only — twice per
@@ -39,6 +43,18 @@ const TIERS = ['early', 'mid', 'late'];
 /** KTC pins its best asset to 9999. Fixed, so ratings do not drift on refresh. */
 const KTC_MAX = 9999;
 
+/**
+ * FantasyPros expert consensus, which is the redraft opinion this product
+ * uses. Their robots.txt permits these pages (only /ajax/, /api/, /json/,
+ * /xml/ and /nfl/ranker/ are disallowed) and their llms.txt advertises them
+ * to agents by name. The rankings are embedded in the page server side, so no
+ * disallowed endpoint is touched. Fetched at build time only, once per deploy.
+ */
+const FP_BOARDS = [
+  { format: 'standard', url: 'https://www.fantasypros.com/nfl/rankings/ppr-cheatsheets.php' },
+  { format: 'superflex', url: 'https://www.fantasypros.com/nfl/rankings/ppr-superflex-cheatsheets.php' },
+];
+
 const BOARDS = [
   { horizon: 'dynasty', url: 'https://keeptradecut.com/dynasty-rankings' },
   { horizon: 'redraft', url: 'https://keeptradecut.com/fantasy-rankings' },
@@ -46,6 +62,76 @@ const BOARDS = [
 
 const UA =
   'Dynasty-FF/1.0 (+https://github.com/devinmeeuwsen/Dynasty-FF) build-time snapshot, 2 req/deploy';
+
+/** Pull the `ecrData` object out of a FantasyPros rankings page. */
+export function extractEcrData(html, label = 'page') {
+  const marker = 'var ecrData';
+  const at = html.indexOf(marker);
+  if (at < 0) throw new Error(`${label}: ecrData not found — page structure changed`);
+  const from = html.indexOf('{', at);
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = from; i < html.length; i++) {
+    const c = html[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === '{') depth += 1;
+    else if (c === '}') {
+      depth -= 1;
+      if (depth === 0) return JSON.parse(html.slice(from, i + 1));
+    }
+  }
+  throw new Error(`${label}: ecrData object never closed`);
+}
+
+async function fetchFantasyPros(url) {
+  const response = await fetch(url, { headers: { 'user-agent': UA } });
+  if (!response.ok) throw new Error(`${url} -> ${response.status}`);
+  return extractEcrData(await response.text(), url);
+}
+
+/**
+ * Fit `value = A * exp(-lambda * (rank - 1))` to a board by least squares on
+ * the log values.
+ *
+ * The redraft market is far flatter than the dynasty one — lambda comes out
+ * around 0.0055 against the dynasty board's 0.021 — so reusing the dynasty
+ * constant would put redraft values on a scale roughly four times steeper.
+ * Since long term value is the DIFFERENCE between the two, that mismatch does
+ * not cancel: it shifted the whole column by about +17 and made ninety percent
+ * of the league read as future leaning. Fitting the curve to the board it is
+ * meant to represent is what makes the subtraction mean anything.
+ */
+export function fitDecay(values) {
+  let n = 0;
+  let sx = 0;
+  let sy = 0;
+  let sxx = 0;
+  let sxy = 0;
+  values.forEach((v, i) => {
+    if (!(v > 0)) return;
+    const x = i;
+    const y = Math.log(v);
+    n += 1;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    sxy += x * y;
+  });
+  if (n < 10) throw new Error('not enough points to fit a redraft curve');
+  const lambda = -(n * sxy - sx * sy) / (n * sxx - sx * sx);
+  const scale = Math.exp((sy + lambda * sx) / n);
+  if (!(lambda > 0) || !(scale > 0)) {
+    throw new Error(`redraft curve fit is degenerate: scale ${scale}, lambda ${lambda}`);
+  }
+  return { scale: Math.round(scale * 100) / 100, lambda: Math.round(lambda * 1e6) / 1e6 };
+}
 
 async function fetchBoard(url) {
   const response = await fetch(url, { headers: { 'user-agent': UA } });
@@ -87,6 +173,45 @@ export function extractPlayersArray(html, label = 'page') {
     }
   }
   throw new Error(`${label}: playersArray literal never closed`);
+}
+
+/** Reduce a name to a stable key for cross-source matching. */
+const norm = (x) =>
+  String(x)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z]/g, '')
+    .replace(/(jr|sr|ii|iii|iv|v)$/, '');
+
+/**
+ * FantasyPros ranks, matched onto KeepTradeCut's player keys.
+ *
+ * Matched here rather than at runtime so a name FantasyPros spells differently
+ * fails the build loudly instead of silently dropping a player's redraft value
+ * to zero in someone's league. Position must agree: a name collision across
+ * positions is a different person.
+ */
+function redraftRanks(ecrData, players) {
+  const byNamePos = new Map();
+  for (const [key, row] of Object.entries(players)) {
+    byNamePos.set(`${norm(row[0])}|${row[1]}`, key);
+  }
+
+  const ranked = ecrData.players
+    .filter((p) => POSITIONS.has(p.player_position_id))
+    .sort((a, b) => a.rank_ecr - b.rank_ecr);
+
+  const out = [];
+  const unmatched = [];
+  ranked.forEach((p, index) => {
+    const key = byNamePos.get(`${norm(p.player_name)}|${p.player_position_id}`);
+    // Rank is re-indexed over skill positions only, so kickers and defences
+    // sitting in the published list do not push everyone down the curve.
+    if (key) out.push([key, index + 1]);
+    else unmatched.push(`${p.player_name} (${p.player_position_id})`);
+  });
+  return { ranks: out, considered: ranked.length, unmatched };
 }
 
 /** KTC value -> 0-100 rating. */
@@ -348,6 +473,43 @@ async function main() {
   };
   console.log(`rookie pick year-over-year decay: ${JSON.stringify(pickYearDecay)}`);
 
+  // FantasyPros supplies the redraft ORDER; the curve it is read through is
+  // fitted to KeepTradeCut's own redraft board, so redraft values land on the
+  // same scale as the dynasty ratings they get subtracted from.
+  const redraft = {};
+  for (const { format, url } of FP_BOARDS) {
+    const ecrData = await fetchFantasyPros(url);
+    const { ranks, considered, unmatched } = redraftRanks(ecrData, players);
+    const fit = fitDecay(boards[`redraft.${format}`].map(([, v]) => v));
+    redraft[format] = { ...fit, ranks };
+    console.log(
+      `fantasypros ${format.padEnd(9)} ${considered} ranked, ${ranks.length} matched, ` +
+        `${unmatched.length} unmatched — curve scale ${fit.scale} lambda ${fit.lambda}`,
+    );
+    if (ranks.length < 200) {
+      throw new Error(
+        `fantasypros ${format}: only ${ranks.length} players matched the KeepTradeCut board — ` +
+          'name matching has broken',
+      );
+    }
+  }
+
+  /**
+   * FantasyPros publishes no tight end premium variant, so the lift KTC's own
+   * premium boards show is carried over as a single multiplier per variant.
+   * An average rather than a per-player figure, which is an approximation —
+   * but the alternative is a premium league pricing its tight ends off a board
+   * that does not know the premium exists.
+   */
+  const teLift = {};
+  for (const [key, rows] of Object.entries(teOverrides)) {
+    const base = new Map(boards[key.split('.').slice(0, 2).join('.')] ?? []);
+    const lifts = rows.map(([id, r]) => r / base.get(id)).filter((x) => Number.isFinite(x) && x > 0);
+    if (lifts.length) {
+      teLift[key] = Math.round((lifts.reduce((a, b) => a + b, 0) / lifts.length) * 1000) / 1000;
+    }
+  }
+
   const { r, n } = crossBoardCorrelation(boards['dynasty.superflex'], boards['redraft.superflex']);
   console.log(`cross-board correlation r=${r.toFixed(3)} over ${n} shared players`);
   if (r < 0.5) {
@@ -358,14 +520,17 @@ async function main() {
   }
 
   const snapshot = {
-    version: 2,
+    version: 3,
     source: 'keeptradecut',
     asOf: new Date().toISOString().slice(0, 10),
     provenance:
       'Crowdsourced dynasty and redraft market values from KeepTradeCut, rescaled to 0-100. ' +
       'Long term reads the dynasty board, win now reads the redraft board; the two are ' +
       'independent measurements, not one derived from the other.',
-    attribution: { name: 'KeepTradeCut', url: 'https://keeptradecut.com' },
+    attribution: [
+      { name: 'KeepTradeCut', url: 'https://keeptradecut.com', supplies: 'dynasty values and rookie picks' },
+      { name: 'FantasyPros', url: 'https://www.fantasypros.com', supplies: 'redraft expert consensus order' },
+    ],
     ktcMax: KTC_MAX,
     players,
     boards,
@@ -374,6 +539,10 @@ async function main() {
     // Rookie draft picks: three tier anchors per year and round.
     rookiePicks: picks,
     pickYearDecay,
+    // FantasyPros expert consensus order, plus the curve fitted to the
+    // KeepTradeCut redraft board that turns a rank into a 0-100 value.
+    redraft,
+    teLift,
   };
 
   mkdirSync(dirname(OUT), { recursive: true });

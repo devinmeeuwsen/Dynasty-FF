@@ -146,8 +146,8 @@ function sideResult(
   const playersIn = other.players.map(value).filter(Boolean) as ValuedPlayer[];
 
   const longTermDelta =
-    playersIn.reduce((a, p) => a + p.longTerm, 0) -
-    playersOut.reduce((a, p) => a + p.longTerm, 0);
+    playersIn.reduce((a, p) => a + p.assetValue, 0) -
+    playersOut.reduce((a, p) => a + p.assetValue, 0);
 
   const beforeByKey = new Map(base.picks.map((p) => [pickKey(p), p]));
   const movedKeys = new Set([...side.picks, ...other.picks]);

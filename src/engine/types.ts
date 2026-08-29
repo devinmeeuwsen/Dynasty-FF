@@ -98,34 +98,41 @@ export interface ValuedPlayer {
   team: string | null;
   age: number | null;
   /**
-   * The 0-100 rating. This is the standalone worth of the player, on the same
-   * scale for everyone: a free agent gets his real number here rather than
-   * being flattened to zero, so the board reads like a rating list.
+   * The player's Rating: KeepTradeCut's dynasty value on a 0-100 scale.
+   *
+   * This is THE number. The dynasty market already prices a player's whole
+   * future, this season included, so it needs no blending with anything.
    */
-  winNowRating: number;
-  longTermRating: number;
+  rating: number;
   /**
-   * Rating minus this position's replacement level, SIGNED. Positive means the
-   * player beats the best freely available body at his position; negative means
-   * he is worse than what the waiver wire already offers, which is real
-   * information and is why this is not clamped.
+   * Redraft value: FantasyPros expert consensus order, priced on the same
+   * 0-100 ladder as the rating. What he is worth for this season alone.
    */
-  winNowVar: number;
-  longTermVar: number;
-  /** Alias of the rating kept for the raw pre-replacement value. */
-  winNowRaw: number;
-  /** Alias of the rating kept for the raw pre-replacement value. */
-  longTermRaw: number;
+  redraft: number;
   /**
-   * max(0, winNowVar). What the engine consumes — lineup optimisation, roster
-   * strength, trades and picks all want marginal value, and a player you would
-   * never start contributes none. Display reads winNowVar instead.
+   * Long term value: rating minus redraft, SIGNED.
+   *
+   * Negative means the market pays him more for this season than for his
+   * career — an ageing quarterback. Positive means he is a better asset than
+   * he is a starter — a rookie. Near zero means both, which is the balanced
+   * band. Because both inputs are read off the same ladder, a player who
+   * stands equally high on each lands at exactly zero.
    */
-  winNow: number;
-  /** max(0, longTermVar). */
   longTerm: number;
-  /** Directional indicator only. Never a value. */
-  timelineGap: number;
+  /** Rating minus this position's dynasty replacement level, signed. */
+  ratingVar: number;
+  /** Redraft value minus this position's redraft replacement level, signed. */
+  redraftVar: number;
+  /**
+   * max(0, ratingVar). What long term asset arithmetic consumes — roster
+   * strength, trade totals, contention posture.
+   */
+  assetValue: number;
+  /**
+   * max(0, redraftVar). What the season simulation consumes: a player who
+   * cannot crack a lineup contributes nothing to what a team scores.
+   */
+  lineupValue: number;
   /** Roster id of the owning team, or null when on the waiver wire. */
   ownerRosterId: number | null;
 }

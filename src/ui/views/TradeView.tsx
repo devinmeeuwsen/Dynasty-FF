@@ -18,7 +18,17 @@ import {
   Select,
   Toggle,
 } from '../components/primitives';
-import { deltaClass, ordinal, percent, signed, signedPercentPoints, value } from '../format';
+import {
+  TIMELINE_LABEL,
+  deltaClass,
+  ordinal,
+  percent,
+  signed,
+  signedPercentPoints,
+  timelineClass,
+  timelineOf,
+  value,
+} from '../format';
 
 interface SideState {
   rosterId: number;
@@ -225,22 +235,26 @@ function SideBuilder({
                 </button>
               </div>
               <dl className="num mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5 text-[0.6875rem]">
-                <Attr label="Rating" value={value(blendedRating(p, weight))} tone="text-blend-400" />
+                <Attr label="Rating" value={value(p.rating)} tone="text-blend-400" />
+                <Attr label="Redraft" value={value(p.redraft)} tone="text-now-400" />
+                <Attr
+                  label={TIMELINE_LABEL[timelineOf(p.longTerm)]}
+                  value={signed(p.longTerm)}
+                  tone={timelineClass(p.longTerm)}
+                />
                 <Attr
                   label="VAR"
                   value={signed(blendedVar(p, weight))}
                   tone={deltaClass(blendedVar(p, weight), 0.05)}
                 />
                 <Attr
-                  label="Gap"
-                  value={signed(p.timelineGap)}
-                  tone={deltaClass(p.timelineGap, 0.5)}
-                />
-                <Attr label="Win now" value={value(p.winNowRating)} tone="text-now-400" />
-                <Attr label="Long term" value={value(p.longTermRating)} tone="text-later-400" />
-                <Attr
                   label="Over wire"
-                  value={`${signed(p.winNowVar)} / ${signed(p.longTermVar)}`}
+                  value={`${signed(p.redraftVar)} / ${signed(p.ratingVar)}`}
+                  tone="text-ink-300"
+                />
+                <Attr
+                  label="Blended"
+                  value={value(blendedRating(p, weight))}
                   tone="text-ink-300"
                 />
               </dl>
@@ -278,7 +292,7 @@ function SideBuilder({
                       value={signed(valuation.value)}
                       tone={deltaClass(valuation.value, 0.05)}
                     />
-                    <Attr label="Win now" value="0.0" tone="text-ink-500" />
+                    <Attr label="Redraft" value="0.0" tone="text-ink-500" />
                     <Attr
                       label="Likely slot"
                       value={formatSlot(Math.round(
@@ -681,8 +695,8 @@ function AssetList({
           <li key={p.id} className="flex items-center gap-2 text-[0.8125rem]">
             <PositionChip position={p.position} />
             <span className="min-w-0 flex-1 truncate text-ink-200">{p.name}</span>
-            <span className="num text-now-400">{value(p.winNow)}</span>
-            <span className="num text-later-400">{value(p.longTerm)}</span>
+            <span className="num text-now-400">{value(p.lineupValue)}</span>
+            <span className="num text-later-400">{value(p.assetValue)}</span>
           </li>
         ))}
         {picks.map((pick) => (

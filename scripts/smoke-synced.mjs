@@ -235,7 +235,7 @@ if ((await addButtons.count()) === 0) {
     const card = (await page.locator('main ul li').first().innerText()).replace(/\s+/g, ' ');
     // The card uppercases its labels in CSS, so compare case-insensitively.
     const flat = card.toLowerCase();
-    for (const attr of ['rating', 'var', 'win now', 'long term']) {
+    for (const attr of ['rating', 'redraft', 'var', 'over wire']) {
       if (!flat.includes(attr)) {
         errs.push(`trade builder: selected player card is missing ${attr} (${card.slice(0, 120)})`);
       }

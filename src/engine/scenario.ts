@@ -77,7 +77,7 @@ function lineupPlayers(
   for (const id of roster.playerIds) {
     const v = values.get(id);
     if (!v) continue;
-    out.push({ id, position: v.position, value: v.winNow });
+    out.push({ id, position: v.position, value: v.lineupValue });
   }
   return out;
 }
@@ -100,8 +100,8 @@ export function evaluateScenario(input: ScenarioInput): Scenario {
     for (const id of roster.playerIds) {
       const v = input.values.get(id);
       if (!v) continue;
-      lt += v.longTerm;
-      wn += v.winNow;
+      lt += v.assetValue;
+      wn += v.lineupValue;
     }
     longTermByTeam.set(roster.rosterId, lt);
     winNowByTeam.set(roster.rosterId, wn);
@@ -180,5 +180,5 @@ export function rosterEfficiency(
         starting: startingSet.has(p.id),
       };
     })
-    .sort((a, b) => b.marginalWinNow - a.marginalWinNow || b.player.longTerm - a.player.longTerm);
+    .sort((a, b) => b.marginalWinNow - a.marginalWinNow || b.player.assetValue - a.player.assetValue);
 }

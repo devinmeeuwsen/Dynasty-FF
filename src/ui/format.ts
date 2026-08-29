@@ -63,6 +63,42 @@ export function relativeTime(date: Date | null): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+/**
+ * The balanced band for long term value.
+ *
+ * Long term is a player's rating minus his redraft value, both read off the
+ * same ladder, so zero means he stands equally high as an asset and as a
+ * starter. Three points either side of that is the band where he is genuinely
+ * both — about 40% of ranked players, which keeps all three readings useful.
+ */
+export const BALANCED_BAND = 3;
+
+export type Timeline = 'future' | 'balanced' | 'now';
+
+export function timelineOf(longTerm: number): Timeline {
+  if (longTerm > BALANCED_BAND) return 'future';
+  if (longTerm < -BALANCED_BAND) return 'now';
+  return 'balanced';
+}
+
+export const TIMELINE_LABEL: Record<Timeline, string> = {
+  future: 'Future asset',
+  balanced: 'Balanced',
+  now: 'Win now',
+};
+
+/** Colour a long term number by which side of the balanced band it falls. */
+export function timelineClass(longTerm: number): string {
+  switch (timelineOf(longTerm)) {
+    case 'future':
+      return 'text-later-400';
+    case 'now':
+      return 'text-now-400';
+    default:
+      return 'text-ink-300';
+  }
+}
+
 /** Colour for a delta: green up, rose down, muted at zero. */
 export function deltaClass(n: number, epsilon = 1e-9): string {
   if (n > epsilon) return 'text-good-500';

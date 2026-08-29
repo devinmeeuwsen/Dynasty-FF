@@ -268,8 +268,8 @@ describe('assembling engine players from a ranking set', () => {
     for (const position of POSITIONS) {
       const best = valued.players
         .filter((p) => p.position === position)
-        .sort((a, b) => b.winNow - a.winNow)[0];
-      expect(best.winNow).toBeGreaterThan(0);
+        .sort((a, b) => b.lineupValue - a.lineupValue)[0];
+      expect(best.lineupValue).toBeGreaterThan(0);
     }
   });
 
@@ -327,10 +327,10 @@ describe('ratings and value over replacement are separate columns', () => {
     for (const valued of result.players) {
       const source = byId.get(valued.id)!;
       if (source.dynastyRating != null) {
-        expect(valued.longTermRating).toBeCloseTo(source.dynastyRating, 6);
+        expect(valued.rating).toBeCloseTo(source.dynastyRating, 6);
       }
       if (source.redraftRating != null) {
-        expect(valued.winNowRating).toBeCloseTo(source.redraftRating, 6);
+        expect(valued.redraft).toBeCloseTo(source.redraftRating, 6);
       }
     }
   });
@@ -342,14 +342,14 @@ describe('ratings and value over replacement are separate columns', () => {
 
     // The whole point: a free agent has standalone worth on the same 0-100
     // scale as everyone else.
-    const rated = free.filter((p) => p.longTermRating > 0);
+    const rated = free.filter((p) => p.rating > 0);
     expect(rated.length).toBe(free.length);
-    expect(Math.max(...free.map((p) => p.longTermRating))).toBeGreaterThan(1);
+    expect(Math.max(...free.map((p) => p.rating))).toBeGreaterThan(1);
 
     for (const player of result.players) {
-      expect(player.longTermRating).toBeGreaterThan(0);
-      expect(player.longTermRating).toBeLessThanOrEqual(100);
-      expect(player.winNowRating).toBeLessThanOrEqual(100);
+      expect(player.rating).toBeGreaterThan(0);
+      expect(player.rating).toBeLessThanOrEqual(100);
+      expect(player.redraft).toBeLessThanOrEqual(100);
     }
   });
 
@@ -359,20 +359,20 @@ describe('ratings and value over replacement are separate columns', () => {
     // The player who sets replacement level is exactly zero, by construction.
     const replacementId = result.longTerm.replacement.players.WR;
     const replacement = result.players.find((p) => p.id === replacementId)!;
-    expect(replacement.longTermVar).toBeCloseTo(0, 6);
+    expect(replacement.ratingVar).toBeCloseTo(0, 6);
 
     // Below him the column goes negative: worse than freely available.
-    const negatives = result.players.filter((p) => p.longTermVar < 0);
+    const negatives = result.players.filter((p) => p.ratingVar < 0);
     expect(negatives.length).toBeGreaterThan(0);
     for (const player of negatives) {
-      expect(player.longTermRating).toBeGreaterThan(0); // still rated
-      expect(player.longTerm).toBe(0); // engine value stays clamped
+      expect(player.rating).toBeGreaterThan(0); // still rated
+      expect(player.assetValue).toBe(0); // engine value stays clamped
     }
 
     // Starters clear replacement comfortably.
-    const best = [...result.players].sort((a, b) => b.longTermRating - a.longTermRating)[0];
-    expect(best.longTermVar).toBeGreaterThan(0);
-    expect(best.longTerm).toBeCloseTo(best.longTermVar, 6);
+    const best = [...result.players].sort((a, b) => b.rating - a.rating)[0];
+    expect(best.ratingVar).toBeGreaterThan(0);
+    expect(best.assetValue).toBeCloseTo(best.ratingVar, 6);
   });
 
   it('keeps the two columns consistent under the contention blend', () => {
@@ -382,7 +382,7 @@ describe('ratings and value over replacement are separate columns', () => {
         const rating = blendedRating(player, weight);
         const vor = blendedVar(player, weight);
         expect(rating).toBeCloseTo(
-          weight * player.winNowRating + (1 - weight) * player.longTermRating,
+          weight * player.redraft + (1 - weight) * player.rating,
           6,
         );
         // The gap between the columns is the blended replacement level, so it
@@ -454,8 +454,8 @@ describe('league format decides which board a player is priced on', () => {
     const sf = price(true, 0);
     const qb = 'Josh Allen';
     if (one.byName.has(qb) && sf.byName.has(qb)) {
-      expect(sf.byName.get(qb)!.longTermRating).toBeGreaterThan(
-        one.byName.get(qb)!.longTermRating * 1.15,
+      expect(sf.byName.get(qb)!.rating).toBeGreaterThan(
+        one.byName.get(qb)!.rating * 1.15,
       );
     }
     // More quarterbacks get rostered, so the quarterback wire gets thinner.
@@ -477,12 +477,12 @@ describe('league format decides which board a player is priced on', () => {
       const lifted = high.byName.get(name);
       if (!lifted) continue;
       if (p.position === 'TE') {
-        if (p.longTermRating > 5) {
-          expect(lifted.longTermRating).toBeGreaterThan(p.longTermRating);
+        if (p.rating > 5) {
+          expect(lifted.rating).toBeGreaterThan(p.rating);
           tightEndsChecked += 1;
         }
       } else {
-        expect(lifted.longTermRating).toBeCloseTo(p.longTermRating, 6);
+        expect(lifted.rating).toBeCloseTo(p.rating, 6);
         othersChecked += 1;
       }
     }
@@ -491,18 +491,74 @@ describe('league format decides which board a player is priced on', () => {
 
     // The premium is monotone: more points per reception is never worth less.
     for (const [name, p] of base.byName) {
-      if (p.position !== 'TE' || p.longTermRating <= 5) continue;
+      if (p.position !== 'TE' || p.rating <= 5) continue;
       const m = mid.byName.get(name);
       const h = high.byName.get(name);
       if (!m || !h) continue;
-      expect(m.longTermRating).toBeGreaterThanOrEqual(p.longTermRating);
-      expect(h.longTermRating).toBeGreaterThanOrEqual(m.longTermRating - 1e-9);
+      expect(m.rating).toBeGreaterThanOrEqual(p.rating);
+      expect(h.rating).toBeGreaterThanOrEqual(m.rating - 1e-9);
     }
 
     // A premium makes tight ends scarcer, so replacement level rises.
     expect(high.result.longTerm.replacement.levels.TE).toBeGreaterThan(
       base.result.longTerm.replacement.levels.TE,
     );
+  });
+});
+
+describe('rating, redraft and the long term difference between them', () => {
+  const set = bundledRankingSet();
+  const boards = (fmt: 'standard' | 'superflex') => {
+    const rd = set.lists.find((l) => l.horizon === 'redraft' && l.format === fmt)!;
+    const dy = set.lists.find((l) => l.horizon === 'dynasty' && l.format === fmt)!;
+    const dyBy = new Map(dy.entries.map((e) => [e.name, e]));
+    const pairs = rd.entries
+      .filter((e) => dyBy.has(e.name))
+      .map((e) => ({ name: e.name, redraft: e.rating as number, rating: dyBy.get(e.name)!.rating as number }));
+    return { rd, dy, dyBy, pairs };
+  };
+
+  it('leaves the difference centred on zero across the whole board', () => {
+    // Both sides are drawn from one distribution, so a player who stands
+    // equally high on each lands at zero and the league median does too.
+    // Every earlier scaling — a fitted exponential, the redraft ladder, a hand
+    // shaped logistic — pushed this off zero by 5 to 18 points.
+    for (const fmt of ['standard', 'superflex'] as const) {
+      const diffs = boards(fmt).pairs.map((p) => p.rating - p.redraft).sort((a, b) => a - b);
+      expect(diffs.length).toBeGreaterThan(300);
+      const median = diffs[Math.floor(diffs.length / 2)];
+      expect(Math.abs(median), `${fmt} median ${median}`).toBeLessThan(3);
+      const balanced = diffs.filter((d) => Math.abs(d) <= 3).length / diffs.length;
+      expect(balanced, `${fmt} balanced share ${balanced}`).toBeGreaterThan(0.2);
+    }
+  });
+
+  it('keeps the top of the redraft board flat, so near-equal starters price alike', () => {
+    // The dynasty ladder cliffs from 99.9 to 92.3 at its fourth entry. Read
+    // straight it made the second and fourth best players for this season
+    // differ by seven points, which they are not.
+    for (const fmt of ['standard', 'superflex'] as const) {
+      const top = boards(fmt).rd.entries.slice(0, 4).map((e) => e.rating as number);
+      expect(top[0] - top[3], `${fmt} top-four spread`).toBeLessThan(3);
+      for (let i = 1; i < top.length; i++) expect(top[i]).toBeLessThanOrEqual(top[i - 1]);
+    }
+  });
+
+  it('reads an elite dual-purpose back as balanced, not as a future asset', () => {
+    // The case that exposed every earlier scaling: top of the redraft board
+    // and top of the dynasty board at once, so the difference must be small.
+    const { pairs } = boards('standard');
+    for (const name of ['Jahmyr Gibbs', 'Bijan Robinson', "Ja'Marr Chase"]) {
+      const p = pairs.find((x) => x.name === name);
+      if (!p) continue;
+      expect(Math.abs(p.rating - p.redraft), `${name} ${p.rating} vs ${p.redraft}`).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it('separates an ageing producer from a young asset by sign', () => {
+    const { pairs } = boards('standard');
+    const mcCaffrey = pairs.find((p) => p.name === 'Christian McCaffrey');
+    if (mcCaffrey) expect(mcCaffrey.rating - mcCaffrey.redraft).toBeLessThan(-5);
   });
 });
 
