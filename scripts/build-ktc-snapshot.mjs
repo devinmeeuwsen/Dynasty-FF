@@ -100,15 +100,59 @@ export function toRating(value) {
  */
 const keyOf = (row) => String(row.mflid);
 
-function boardEntries(rows, formatKey) {
+/**
+ * Tight end premium variants. KeepTradeCut publishes a full board for each
+ * scoring level, nested under the same format object.
+ *   tep   ~ +0.5 PPR for tight ends
+ *   tepp  ~ +1.0
+ *   teppp ~ +1.5
+ */
+const TE_VARIANTS = ['tep', 'tepp', 'teppp'];
+
+function ratingOf(row, formatKey, variant) {
+  const format = row[formatKey];
+  if (!format) return null;
+  return toRating(variant ? format[variant]?.value : format.value);
+}
+
+function boardEntries(rows, formatKey, variant = null) {
   const out = [];
   for (const row of rows) {
     if (!POSITIONS.has(row.position)) continue; // drops RDP picks, DST and PK
-    const rating = toRating(row[formatKey]?.value);
+    const rating = ratingOf(row, formatKey, variant);
     if (rating == null) continue;
     out.push([keyOf(row), rating]);
   }
   // Descending rating is the board order; ties break on KTC's own rank.
+  return out.sort((a, b) => b[1] - a[1]);
+}
+
+/**
+ * A tight end premium changes what tight ends are worth and nothing else.
+ *
+ * That is what makes storing these as overrides rather than as twelve more
+ * full boards correct rather than merely compact: the non-tight-end half of
+ * every variant board is byte-identical to the base board. Verified here on
+ * every build, because if KeepTradeCut ever started moving other positions
+ * under a premium, silently keeping the base values would be wrong.
+ */
+function teOverride(rows, formatKey, variant) {
+  const out = [];
+  for (const row of rows) {
+    if (!POSITIONS.has(row.position)) continue;
+    const base = ratingOf(row, formatKey, null);
+    const premium = ratingOf(row, formatKey, variant);
+    if (base == null || premium == null) continue;
+    if (row.position === 'TE') {
+      out.push([keyOf(row), premium]);
+    } else if (Math.abs(premium - base) > 1e-9) {
+      throw new Error(
+        `${formatKey}/${variant}: ${row.playerName} is a ${row.position} but its value ` +
+          `moves under a tight end premium (${base} -> ${premium}). The override model ` +
+          'assumes only tight ends move; revisit it.',
+      );
+    }
+  }
   return out.sort((a, b) => b[1] - a[1]);
 }
 
@@ -179,14 +223,24 @@ async function main() {
     }
   }
 
-  const boards = {
-    'dynasty.standard': boardEntries(fetched.dynasty, 'oneQBValues'),
-    'dynasty.superflex': boardEntries(fetched.dynasty, 'superflexValues'),
-    'redraft.standard': boardEntries(fetched.redraft, 'oneQBValues'),
-    'redraft.superflex': boardEntries(fetched.redraft, 'superflexValues'),
-  };
+  const FORMATS = [
+    ['dynasty', 'standard', 'oneQBValues'],
+    ['dynasty', 'superflex', 'superflexValues'],
+    ['redraft', 'standard', 'oneQBValues'],
+    ['redraft', 'superflex', 'superflexValues'],
+  ];
 
-  for (const [key, board] of Object.entries(boards)) {
+  const boards = {};
+  const teOverrides = {};
+  for (const [horizon, qb, formatKey] of FORMATS) {
+    boards[`${horizon}.${qb}`] = boardEntries(fetched[horizon], formatKey);
+    for (const variant of TE_VARIANTS) {
+      const rows = teOverride(fetched[horizon], formatKey, variant);
+      if (rows.length) teOverrides[`${horizon}.${qb}.${variant}`] = rows;
+    }
+  }
+
+  for (const [key, board] of Object.entries({ ...boards, ...teOverrides })) {
     const orphan = board.find(([id]) => !players[id]);
     if (orphan) throw new Error(`${key}: entry ${orphan[0]} has no player record`);
   }
@@ -212,6 +266,8 @@ async function main() {
     ktcMax: KTC_MAX,
     players,
     boards,
+    // Tight ends only. Merged over the matching base board at load time.
+    teOverrides,
   };
 
   mkdirSync(dirname(OUT), { recursive: true });
@@ -226,6 +282,14 @@ async function main() {
   console.log(`\nwrote ${OUT} — ${Object.keys(players).length} players`);
   for (const key of Object.keys(boards)) {
     console.log(`${key.padEnd(19)} ${boards[key].length.toString().padStart(3)} — ${top(key)}`);
+  }
+  console.log(`\ntight end premium overrides (tight ends only):`);
+  for (const key of Object.keys(teOverrides)) {
+    const rows = teOverrides[key];
+    const base = new Map(boards[key.split('.').slice(0, 2).join('.')]);
+    const lift = rows.map(([id, r]) => r / base.get(id)).filter(Number.isFinite);
+    const mean = lift.reduce((a, b) => a + b, 0) / Math.max(1, lift.length);
+    console.log(`  ${key.padEnd(28)} ${String(rows.length).padStart(3)} TEs, mean lift x${mean.toFixed(3)}`);
   }
 }
 

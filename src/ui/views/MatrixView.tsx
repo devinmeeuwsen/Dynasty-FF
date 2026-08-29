@@ -18,19 +18,36 @@ export function MatrixView() {
   const teamName = useTeamName();
   const league = useStore((s) => s.league);
 
+  const playoffTeams = league?.playoffTeams ?? 6;
+
   const derived = useMemo(() => {
     if (!scenario) return null;
     const finish = scenario.result.finish;
-    return finish.rosterIds.map((rosterId, i) => ({
-      rosterId,
-      name: teamName(rosterId),
-      title: finish.rows[i][0],
-      payout: expectedPayout(finish.rows[i], settings.payoutWeights),
-      expected: finish.rows[i].reduce((acc, p, j) => acc + p * (j + 1), 0),
-      strength: scenario.strengths.get(rosterId) ?? 0,
-      points: scenario.result.meanPoints.get(rosterId) ?? 0,
-    }));
-  }, [scenario, settings.payoutWeights, teamName]);
+    const regular = scenario.result.regularSeason;
+    return finish.rosterIds.map((rosterId, i) => {
+      const regularRow = regular.rows[i] ?? [];
+      // Seeding comes off the regular season matrix, everything after it off
+      // the final one. Reading both from `finish` would quietly count a team
+      // that finished third overall as having earned the third seed.
+      const madePlayoffs = regularRow
+        .slice(0, playoffTeams)
+        .reduce((a, b) => a + b, 0);
+      const byeSeeds = Math.max(0, (1 << Math.ceil(Math.log2(Math.max(2, playoffTeams)))) - playoffTeams);
+      return {
+        rosterId,
+        name: teamName(rosterId),
+        title: finish.rows[i][0],
+        finalist: (finish.rows[i][0] ?? 0) + (finish.rows[i][1] ?? 0),
+        madePlayoffs,
+        bye: byeSeeds > 0 ? regularRow.slice(0, byeSeeds).reduce((a, b) => a + b, 0) : 0,
+        payout: expectedPayout(finish.rows[i], settings.payoutWeights),
+        expected: finish.rows[i].reduce((acc, p, j) => acc + p * (j + 1), 0),
+        expectedSeed: regularRow.reduce((acc, p, j) => acc + p * (j + 1), 0),
+        strength: scenario.strengths.get(rosterId) ?? 0,
+        points: scenario.result.meanPoints.get(rosterId) ?? 0,
+      };
+    });
+  }, [scenario, settings.payoutWeights, teamName, playoffTeams]);
 
   if (simError) {
     return (
@@ -98,8 +115,8 @@ export function MatrixView() {
 
       <Panel className="overflow-hidden animate-rise">
         <PanelHeader
-          title="Finish probability matrix"
-          subtitle="Rows are teams, columns are finish positions, cells are the probability of landing there. This is the underlying truth of the model; every win now number in the app is derived from it."
+          title="Regular season seeding"
+          subtitle={`Where the ${league?.regularSeasonWeeks ?? 14}-week schedule leaves each team. A full schedule averages a lot of variance away, and this is what decides who reaches the bracket at all.`}
           right={
             <Button size="sm" onClick={runBaseline} disabled={simulating}>
               {simulating ? 'Simulating…' : 'Re-run'}
@@ -107,10 +124,90 @@ export function MatrixView() {
           }
         />
         <FinishMatrixHeatmap
+          matrix={scenario.result.regularSeason}
+          teamName={teamName}
+          highlightRosterId={userRosterId}
+          caption={`Columns are seeds. The first ${playoffTeams} make the playoffs.`}
+        />
+      </Panel>
+
+      <Panel className="overflow-hidden animate-rise">
+        <PanelHeader
+          title="Final standings after the bracket"
+          subtitle={`The same season carried through the playoffs${
+            (league?.playoffWeeksPerRound ?? 1) > 1 ? ', two weeks per round' : ''
+          }. The bracket adds its own noise on top of the schedule, so this matrix can only be more spread than the one above it. That widening is the postseason's luck, made visible rather than argued about.`}
+        />
+        <FinishMatrixHeatmap
           matrix={scenario.result.finish}
           teamName={teamName}
           highlightRosterId={userRosterId}
+          caption="Columns are final placements. Every win now number in the app is derived from this matrix."
         />
+      </Panel>
+
+      <Panel className="animate-rise">
+        <PanelHeader
+          title="How far each team gets"
+          subtitle="Read across: reaching the bracket is mostly earned over the schedule, winning it mostly is not."
+        />
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[30rem] text-left text-[0.8125rem]">
+            <thead className="text-[0.6875rem] uppercase tracking-[0.08em] text-ink-400">
+              <tr className="border-b border-white/[0.06]">
+                <th className="py-2 pl-4 font-medium sm:pl-5">Team</th>
+                <th className="px-2 py-2 text-right font-medium">Proj. seed</th>
+                <th className="px-2 py-2 text-right font-medium">Make playoffs</th>
+                {derived.some((d) => d.bye > 0) ? (
+                  <th className="px-2 py-2 text-right font-medium">First-round bye</th>
+                ) : null}
+                <th className="px-2 py-2 text-right font-medium">Reach final</th>
+                <th className="py-2 pr-4 text-right font-medium text-blend-400 sm:pr-5">Title</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...derived]
+                .sort((a, b) => b.title - a.title)
+                .map((d) => (
+                  <tr
+                    key={d.rosterId}
+                    className={`border-b border-white/[0.035] ${
+                      d.rosterId === userRosterId ? 'bg-blend-500/[0.06]' : ''
+                    }`}
+                  >
+                    <td className="truncate py-2 pl-4 text-ink-100 sm:pl-5">{d.name}</td>
+                    <td className="num px-2 py-2 text-right text-ink-400">
+                      {ordinal(d.expectedSeed)}
+                    </td>
+                    <td className="num px-2 py-2 text-right text-ink-200">
+                      {percent(d.madePlayoffs, 0)}
+                    </td>
+                    {derived.some((x) => x.bye > 0) ? (
+                      <td className="num px-2 py-2 text-right text-ink-400">
+                        {percent(d.bye, 0)}
+                      </td>
+                    ) : null}
+                    <td className="num px-2 py-2 text-right text-ink-200">
+                      {percent(d.finalist, 0)}
+                    </td>
+                    <td className="num py-2 pr-4 text-right font-semibold text-blend-400 sm:pr-5">
+                      {percent(d.title, 1)}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="px-4 py-3 text-[0.75rem] leading-relaxed text-ink-400 sm:px-5">
+          Bracket shape{' '}
+          {league?.bracketSource === 'sleeper'
+            ? `read from this league's published bracket (${league.playoffRounds} rounds)`
+            : `derived from ${playoffTeams} playoff teams — Sleeper only publishes the bracket once the playoffs are seeded`}
+          {(league?.playoffWeeksPerRound ?? 1) > 1
+            ? ', two weeks per round, which favours the better team'
+            : ', one week per round'}
+          .
+        </p>
       </Panel>
 
       <div className="grid gap-4 lg:grid-cols-2">

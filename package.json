@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "players:build": "node scripts/build-player-pool.mjs",
-    "rankings:build": "node scripts/build-ktc-snapshot.mjs"
+    "rankings:build": "node scripts/build-ktc-snapshot.mjs",
+    "smoke": "node scripts/smoke-synced.mjs"
   },
   "dependencies": {
     "react": "^19.1.0",

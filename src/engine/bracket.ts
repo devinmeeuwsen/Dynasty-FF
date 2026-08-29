@@ -50,18 +50,29 @@ export function rankBracket(seeds: number[], play: PlayGame): number[] {
 }
 
 /**
- * A single playoff game. Each side draws a score from its own weekly
- * distribution, exactly as in the regular season — playoff variance is not a
- * separate parameter.
+ * A single playoff matchup. Each side draws from its own weekly distribution,
+ * exactly as in the regular season — playoff variance is not a separate
+ * parameter invented for the occasion.
+ *
+ * `weeksPerRound` is read from the league rather than assumed. A two week
+ * round is the sum of two independent weeks, so the mean doubles while the
+ * standard deviation grows only by sqrt(2). That is not a cosmetic detail: it
+ * shrinks the spread relative to the gap between two teams, which is precisely
+ * why two week rounds favour the better team and produce fewer upsets. A
+ * league that plays them and is modelled as playing one week has its
+ * championship odds flattened toward the field.
  */
 export function makeGamePlayer(
   means: Map<number, number>,
   sigma: number,
   rng: Rng,
+  weeksPerRound = 1,
 ): PlayGame {
+  const weeks = Math.max(1, Math.round(weeksPerRound));
+  const spread = sigma * Math.sqrt(weeks);
   return (a, b) => {
-    const sa = (means.get(a) ?? 0) + sigma * rng.normal();
-    const sb = (means.get(b) ?? 0) + sigma * rng.normal();
+    const sa = (means.get(a) ?? 0) * weeks + spread * rng.normal();
+    const sb = (means.get(b) ?? 0) * weeks + spread * rng.normal();
     if (sa === sb) return rng.next() < 0.5 ? a : b;
     return sa > sb ? a : b;
   };

@@ -241,3 +241,45 @@ the age-horizon model that used to live in `scripts/age-model.mjs`. The ordering
 it is a model of a market, not the market. The UI labels it and every serious user
 should import a real board. This was the only way to satisfy "works out of the box"
 without scraping.
+
+## The contention timeline is derived
+
+**Changed: it used to be a user input.** Asking a manager to set their own
+contention timeline asks them to answer the question the product exists to
+answer, and then prices every asset off their guess. The simulation already
+publishes this team's championship probability and the pipeline already knows
+whether its assets expire, so the slider now reads:
+
+    weight = clamp(0.14 + 0.90 * contention - 0.25 * futureStrength, 0, 1)
+
+Both inputs are rank-based standings within the league rather than shares of a
+total, because championship odds are heavily skewed — one dominant roster can
+hold a third of them, and a share-based measure would read every other team as
+hopeless. Ties share a rank, so a league of identical rosters sits at 0.5
+instead of handing an arbitrary team the top spot.
+
+`futureStrength` adds draft capital to long term roster value, because they
+answer the same question: a stack of firsts and a roster of 23 year olds are
+both ways of having a future, and a team that traded its picks for veterans has
+neither however good it looks this season.
+
+**Decision needed from you:** the thresholds. `dynasty` currently needs top-30%
+contention and an above-median future. Those are stated in one place in
+`src/engine/posture.ts` and are the numbers most worth arguing with once you
+have run it against your own league.
+
+## Playoff structure comes from the league
+
+`playoff_round_type` decides whether rounds run one week or two. A two week
+round is the sum of two independent weeks, so the mean doubles while the
+standard deviation grows only by √2 — the favourite converts noticeably more
+often. Modelling a two week league as one week flattens its championship odds
+toward the field, so the setting is read rather than assumed, and an
+unrecognised value falls back to one week because that widens the distribution
+rather than falsely sharpening it.
+
+Sleeper also publishes the real bracket at `/winners_bracket`, which is fetched
+and used to report the bracket's true shape. It only exists once the playoffs
+are seeded, which for a dynasty tool is the minority of the year, so the
+derived reseeded bracket remains the working model and the UI says which one is
+in force.

@@ -165,6 +165,27 @@ export const getRosters = (leagueId: string) =>
 export const getLeagueUsers = (leagueId: string) =>
   get<SleeperLeagueUser[]>(`/league/${leagueId}/users`);
 
+/**
+ * Sleeper publishes the real bracket once the playoffs are seeded. Before that
+ * it returns nothing useful, which is the common case for a dynasty tool used
+ * in the offseason, so every caller must handle an empty result rather than
+ * treating the bracket as guaranteed.
+ */
+export interface SleeperBracketMatch {
+  r: number;
+  m: number;
+  t1?: number | { w?: number; l?: number } | null;
+  t2?: number | { w?: number; l?: number } | null;
+  w?: number | null;
+  l?: number | null;
+}
+
+export const getWinnersBracket = (leagueId: string) =>
+  get<SleeperBracketMatch[]>(`/league/${leagueId}/winners_bracket`);
+
+export const getLosersBracket = (leagueId: string) =>
+  get<SleeperBracketMatch[]>(`/league/${leagueId}/losers_bracket`);
+
 export const getTradedPicks = (leagueId: string) =>
   get<SleeperTradedPick[]>(`/league/${leagueId}/traded_picks`);
 

@@ -4,3 +4,6 @@ dist
 *.local
 .vite
 coverage
+
+# Browser smoke test screenshots
+.smoke/
