@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Position, ValuedPlayer } from '../../engine/types';
 import { POSITIONS } from '../../engine/types';
-import { blendedRating, blendedVar } from '../../engine/values';
 import { Bar, PositionChip, TextInput, Toggle } from './primitives';
 import { TIMELINE_LABEL, deltaClass, signed, timelineClass, timelineOf, value } from '../format';
 
@@ -19,7 +18,6 @@ export type OwnershipFilter = 'all' | 'rostered' | 'free' | 'mine';
 
 interface Props {
   players: ValuedPlayer[];
-  weight: number;
   teamName: (rosterId: number) => string;
   userRosterId?: number | null;
   /** Rendered at the end of each row, e.g. an add-to-trade button. */
@@ -64,7 +62,6 @@ const COLUMNS: { key: SortKey; label: string; hint?: string; className: string }
 
 export function PlayerTable({
   players,
-  weight,
   teamName,
   userRosterId,
   rowAction,
@@ -103,10 +100,16 @@ export function PlayerTable({
       return true;
     });
 
+    // Every column here states a source value, unmodified. Rating used to be
+    // `blendedRating(p, weight)`, which let the contention slider rewrite a
+    // column labelled with someone else's data and reorder the whole board: at
+    // a weight of 0.55 it lifted CeeDee Lamb from 74.6 to 80.2 and moved him
+    // from 14th to 7th. A column carrying a source's name carries that
+    // source's value, and nothing on this table is blended at all.
     const keyed = filtered.map((p) => ({
       player: p,
-      rating: blendedRating(p, weight),
-      vor: blendedVar(p, weight),
+      rating: p.rating,
+      vor: p.ratingVar,
     }));
     keyed.sort((a, b) => {
       const direction = sort.desc ? -1 : 1;
@@ -125,8 +128,6 @@ export function PlayerTable({
         case 'winNow':
           return direction * (a.player.redraft - b.player.redraft);
         case 'longTerm':
-          return direction * (a.player.rating - b.player.rating);
-        case 'longTerm':
           return direction * (a.player.longTerm - b.player.longTerm);
         case 'rating':
         default:
@@ -134,7 +135,7 @@ export function PlayerTable({
       }
     });
     return keyed;
-  }, [players, positions, ownership, query, sort, weight, userRosterId]);
+  }, [players, positions, ownership, query, sort, userRosterId]);
 
   const visible = rows.slice(0, limit);
 

@@ -2,6 +2,7 @@ import type { DraftPick, FinishMatrix, TeamRoster, ValuedPlayer } from './types'
 import { pickKey } from './picks';
 import { evaluateScenario, type Scenario, type ScenarioInput } from './scenario';
 import { bestFreeAgents, rosterSpotEffect, type RosterSpotEffect } from './rosterSpots';
+import { readUsage, type UsageReading } from './usage';
 
 /**
  * The trade calculator.
@@ -61,11 +62,32 @@ export interface TradeSideResult {
   pickBreakdown: PickCapitalChange[];
   playersIn: ValuedPlayer[];
   playersOut: ValuedPlayer[];
+  /**
+   * What each player leaving actually did for this roster, and what the market
+   * pays for him.
+   *
+   * The gap between the two is the whole reason a trade can be good for both
+   * sides. A receiver behind two starters and a backup is worth ten points to
+   * somebody and nothing to the team holding him; without both figures the
+   * deal that converts him into a pick reads as a plain loss.
+   */
+  outgoingUsage: UsageReading[];
+  /** The same for players arriving, measured against the roster receiving them. */
+  incomingUsage: UsageReading[];
   picksIn: DraftPick[];
   picksOut: DraftPick[];
   expectedFinishBefore: number;
   expectedFinishAfter: number;
 }
+
+/**
+ * Above this share of a player's usable value going unused, he is surplus.
+ *
+ * Ninety percent rather than everything: a receiver who is his team's fourth
+ * flex option contributes a sliver through the backup line without being any
+ * less of a sell candidate than one contributing nothing at all.
+ */
+export const IDLE_SHARE = 0.9;
 
 export interface DeadZoneVerdict {
   triggered: boolean;
@@ -197,19 +219,32 @@ function sideResult(
     .filter(Boolean) as DraftPick[];
   const picksIn = other.picks.map((k) => beforeByKey.get(k)).filter(Boolean) as DraftPick[];
 
-  const baselineSize =
-    base.rosters.find((r) => r.rosterId === side.rosterId)?.playerIds.length ?? 0;
+  const beforeRoster = (
+    base.rosters.find((r) => r.rosterId === side.rosterId)?.playerIds ?? []
+  )
+    .map(value)
+    .filter(Boolean) as ValuedPlayer[];
+  const baselineSize = beforeRoster.length;
+
+  const usageOf = (roster: ValuedPlayer[], player: ValuedPlayer) =>
+    readUsage(roster, base.shape, player, base.settings);
+  // Outgoing players are measured on the roster they are leaving; incoming on
+  // the roster receiving them, which is this one with them already added.
+  const outgoingUsage = playersOut.map((p) => usageOf(beforeRoster, p));
   const afterRoster = (
     afterRosters.find((r) => r.rosterId === side.rosterId)?.playerIds ?? []
   )
     .map(value)
     .filter(Boolean) as ValuedPlayer[];
+  const incomingUsage = playersIn.map((p) => usageOf(afterRoster, p));
+
   const rosterSpots = rosterSpotEffect(
     afterRoster,
     base.shape,
     playersIn.length - playersOut.length,
     freeAgents,
     baselineSize,
+    base.settings.rosterSpotOptionValue,
   );
 
   return {
@@ -228,6 +263,8 @@ function sideResult(
     pickBreakdown,
     playersIn,
     playersOut,
+    outgoingUsage,
+    incomingUsage,
     picksIn,
     picksOut,
     expectedFinishBefore: expectedFinish(before.result.finish, side.rosterId),

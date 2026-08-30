@@ -15,7 +15,6 @@ type Tab = 'table' | 'scatter' | 'curves' | 'free';
 export function PlayersView() {
   const [tab, setTab] = useState<Tab>('table');
   const pipeline = useStore((s) => s.pipeline);
-  const weight = useStore((s) => s.settings.contentionWeight);
   const userRosterId = useStore((s) => s.userRosterId);
   const mode = useStore((s) => s.mode);
   const teamName = useTeamName();
@@ -54,7 +53,6 @@ export function PlayersView() {
           />
           <PlayerTable
             players={players}
-            weight={weight}
             teamName={teamName}
             userRosterId={userRosterId}
             showOwner={mode === 'synced'}
@@ -133,7 +131,6 @@ function legendVar(position: Position): string {
 function FreeAgentPanel() {
   const pipeline = useStore((s) => s.pipeline)!;
   const mode = useStore((s) => s.mode);
-  const weight = useStore((s) => s.settings.contentionWeight);
   const teamName = useTeamName();
 
   if (mode !== 'synced') {
@@ -185,7 +182,6 @@ function FreeAgentPanel() {
         <PanelHeader title="The waiver wire" subtitle="Every unrostered player this league knows about." />
         <PlayerTable
           players={free}
-          weight={weight}
           teamName={teamName}
           initialOwnership="free"
           showOwner={false}

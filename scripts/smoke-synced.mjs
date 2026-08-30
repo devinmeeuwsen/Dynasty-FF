@@ -235,7 +235,7 @@ if ((await addButtons.count()) === 0) {
     const card = (await page.locator('main ul li').first().innerText()).replace(/\s+/g, ' ');
     // The card uppercases its labels in CSS, so compare case-insensitively.
     const flat = card.toLowerCase();
-    for (const attr of ['rating', 'redraft', 'var', 'over wire']) {
+    for (const attr of ['rating', 'redraft', 'var', 'redraft var']) {
       if (!flat.includes(attr)) {
         errs.push(`trade builder: selected player card is missing ${attr} (${card.slice(0, 120)})`);
       }
@@ -323,9 +323,67 @@ if ((await addButtons.count()) === 0) {
         errs.push(`trade auto-evaluate: "${want}" never appeared`);
       }
     }
+
+    // A second player on one side makes it a two for one, which is the shape
+    // that frees a seat on the other. Both halves of the roster-spot model —
+    // the option credited for the seat and the surplus reading on the player
+    // who moves — only appear on an uneven deal, so the smoke has to build one.
+    const addA2 = sideA
+      .locator('table tbody tr button', { hasText: /^Add$/ })
+      .first();
+    if (await addA2.count()) {
+      await addA2.click();
+      await page.waitForTimeout(3500);
+      const two = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+      const flat = two.toLowerCase();
+      for (const want of ['roster spots', 'spot freed', 'market', 'if started', 'your use']) {
+        if (!flat.includes(want)) {
+          errs.push(`two-for-one: "${want}" never appeared`);
+        }
+      }
+      const spots = two.match(/Roster spots.{0,300}/);
+      console.log('  roster spots:', spots ? spots[0] : '(missing)');
+      const assets = two.match(/Assets exchanged.{0,320}/);
+      console.log('  assets:', assets ? assets[0] : '(missing)');
+      await page.screenshot({ path: path.join(OUT, 'trade-two-for-one.png'), fullPage: true });
+    } else {
+      errs.push('two-for-one: no second Add button on side A');
+    }
     const scale = after.match(/What each side gains.{0,320}/);
     console.log('  auto-evaluated:', scale ? scale[0] : '(missing)');
     await page.screenshot({ path: path.join(OUT, 'trade-scale.png'), fullPage: true });
+  }
+}
+
+// The Rating column carries KeepTradeCut's name, so it has to carry their
+// number. It was showing the contention blend, which moved players around the
+// board by several places depending on a slider.
+{
+  await page.locator('aside button', { hasText: /^Players/i }).first().click();
+  await page.waitForTimeout(1500);
+  const rows = await page.locator('main table tbody tr').evaluateAll((trs) =>
+    trs.slice(0, 12).map((tr) => {
+      const c = [...tr.querySelectorAll('td')].map((td) => td.innerText.replace(/\s+/g, ' ').trim());
+      return c.join(' | ');
+    }),
+  );
+  console.log('  players board (top rows):');
+  for (const r of rows.slice(0, 6)) console.log('    ' + r.slice(0, 110));
+  // Descending by Rating: each row's rating must be <= the one above it.
+  const nums = rows
+    .map((r) => r.split('|').map((x) => x.trim()))
+    .map((c) => parseFloat(c[3]))
+    .filter((n) => !Number.isNaN(n));
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] > nums[i - 1] + 0.05) {
+      errs.push(`players board is not sorted by rating: ${nums[i - 1]} then ${nums[i]}`);
+      break;
+    }
+  }
+  console.log(`    ratings descending across ${nums.length} rows: ${nums.join(' ')}`);
+  const heads = (await page.locator('main table thead').first().innerText()).toLowerCase();
+  if (heads.includes('blended')) {
+    errs.push('players board still carries a Blended column');
   }
 }
 

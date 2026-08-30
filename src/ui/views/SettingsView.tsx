@@ -408,6 +408,34 @@ export function SettingsView() {
               className="range-slim"
             />
           </Field>
+          <Field
+            label={`Usage horizon · ${settings.usageHorizonYears} seasons`}
+            hint="How long a player's value to his own roster is measured over. One season reads every young player as useless; three is far enough to see a breakout arrive and near enough that the projection still means something."
+          >
+            <input
+              type="range"
+              min={1}
+              max={5}
+              step={1}
+              value={settings.usageHorizonYears}
+              onChange={(e) => setSettings({ usageHorizonYears: Number(e.target.value) })}
+              className="range-slim"
+            />
+          </Field>
+          <Field
+            label={`Open roster spot · ${value(settings.rosterSpotOptionValue, 1)}`}
+            hint="What an empty seat is worth. Not the free agent who fills it — he is worth zero above replacement by definition — but the option the seat carries: keep whoever climbs, drop whoever does not, draw again. This one is an estimate rather than a measurement, which is why it is here. Roughly three puts a speculative seat next to a mediocre backup."
+          >
+            <input
+              type="range"
+              min={0}
+              max={10}
+              step={0.5}
+              value={settings.rosterSpotOptionValue}
+              onChange={(e) => setSettings({ rosterSpotOptionValue: Number(e.target.value) })}
+              className="range-slim"
+            />
+          </Field>
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] px-4 py-3 sm:px-5">
           <Button size="sm" onClick={() => setSettings({ ...DEFAULT_SETTINGS })}>

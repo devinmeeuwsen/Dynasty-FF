@@ -392,28 +392,106 @@ team is never credited for a backup arrangement it could not actually field.
 The waiver wire still contributes nothing, at either line, because a free agent
 has a value above replacement of exactly zero by construction.
 
-## A freed roster spot is worth zero, and the cut on the other side is not
+## Superseded: a freed roster spot is worth zero
 
-The intuition that a two-for-one frees a seat and a free seat can hold a free
-agent is right about the shape and wrong about the sign. Every value in this
-application is measured above replacement, and replacement level IS the best
-free agent at that position, so the player who fills the empty seat is worth
-exactly zero. There is no honest way to book value there, and inventing one
-would double count against the replacement level that every other number is
-already measured against.
+The claim was that an empty seat earns nothing, because every value here is
+measured above replacement and replacement level IS the best free agent, so the
+player who fills the seat is worth exactly zero by construction.
 
-The cost of NOT having a seat is entirely real, and it was the half that was
-missing. A team at its roster limit that receives more bodies than it sends has
-to release somebody it chose to roster over the wire, and the cheapest legal
-cut is charged against it — in this season's strength and in long term value
-both. So the two-for-one asymmetry the intuition is pointing at does get
-priced. It is just booked against the side consolidating rather than credited
-to the side that ends up with the empty seat, which is where it belongs.
+That reasoning proves less than it appears to, and it took a user pushing back
+to see it. Value above replacement asks how much better a player is than one
+you could sign for free — a question that silently assumes you have a spot to
+put the free one in. When roster capacity binds, that assumption is precisely
+what is in doubt. The yardstick cannot measure the seat, and a limitation of
+the instrument was being reported as a result.
 
-Overage a league already has is never charged. Sleeper counts injured reserve
-and taxi players in the same list as everyone else, so a legal roster can read
-as over the limit; only bodies the trade itself adds beyond a team's headroom
-are ever cut.
+## What an open roster spot is worth
+
+An option, and a repeatable one. Sign a wire player; keep him if he climbs;
+drop him for nothing and draw again if he does not. The expectation of any
+single draw is zero, which is what replacement level means, but you hold the
+right and not the obligation to keep the result. So the seat earns
+
+    E[max(0, drift)]   rather than   E[drift]
+
+a call struck at the money and re-struck every week. Its whole value is
+volatility, and volatility is never negative. The intuition that an empty seat
+is worth something is the payoff structure of a call, which is why it feels
+like value even though the average signing is worthless.
+
+The default is 3, and unlike the 0.80 gap retention it is an ESTIMATE rather
+than a measurement — one snapshot cannot observe how often wire players break
+out. Twelve teams times roughly three speculative seats is thirty-six seats
+chasing maybe three to five players a season who go from unrostered to
+genuinely startable at around thirty points of value. That puts a speculative
+seat next to a mediocre first backup, which matches how managers treat them. It
+lives in settings precisely because it is a judgement rather than a finding.
+
+It lands in the win-now column AND the future column at the same size. That is
+not double counting: the scale is a weighted average, so a value present in
+both contributes exactly itself whatever the team's posture. It is also the
+correct behaviour — a wire breakout serves a contender as depth and a rebuilder
+as an asset, so the seat is worth the same to either and only the use differs.
+
+The cost of NOT having a seat is the other half, and it was already here. A
+team at its limit that receives more bodies than it sends must release somebody
+it chose over the wire, and the cheapest legal cut is charged against it.
+Overage a league already has is never charged: Sleeper counts injured reserve
+and taxi players in the same list, so a legal roster can read as over the limit.
+
+## Surplus is measured over a horizon, against like
+
+A player can be worth ten points on the open market and nothing at all to the
+team holding him — behind two starters and a backup, he does not move that
+team's strength by a hundredth of a point. Until both figures are visible, the
+trade converting him into a pick reads as a plain loss, and that was the most
+common way this calculator misled its reader.
+
+Getting the comparison right took two corrections.
+
+The first version subtracted one season of lineup contribution from a dynasty
+rating. Those price different spans — a rating covers a whole remaining career,
+call it eight years — so every good player came out looking like surplus. In
+this league it ranked a franchise back at 69.8 market and 27.4 used ahead of a
+buried receiver at 10.0 and 0.0, exactly backwards.
+
+The second version dodged that by making surplus binary: his whole market value
+when the roster does not use him, nothing when it does. Correct as far as it
+went, and still wrong in the other direction. A single season is too short. A
+rookie behind two starters contributes nothing this year and everything two
+years from now, and a one-year window cannot tell him apart from a
+thirty-year-old in the same seat.
+
+So the reading now carries three numbers, and the subtraction happens between
+the two that share a footing:
+
+    market    dynasty value above replacement — portable currency, untouched
+    horizon   worth to a team that starts him, over three seasons
+    used      worth to THIS roster, over the same three seasons
+    surplus   horizon - used, floored at zero
+
+Both `horizon` and `used` are discounted averages of the same projected season
+values over the same window, so the difference is real: value this roster
+cannot extract. The weights sum to one, which keeps the result on the value
+scale — three seasons of a flat player is worth what one season is, not three
+times as much.
+
+The elite case is the test the design has to pass, and it does. A star starts
+for anyone, so his `used` sits close to his `horizon` on every roster in the
+league and his idle share stays low — you cannot buy one cheap by finding a
+team with no use for him, because there is no such team. Measured on the
+fixture league, the top players extract between 82% and 100% of their value
+while the median rostered player extracts 56%; the gap is depth players, which
+is the correct signal.
+
+Usage is marginal, and deliberately so: on a roster three deep at a position
+the next man up absorbs most of what a player does, so the team genuinely is
+not getting what the league would pay. That is what makes the number
+team-specific and what makes a two-sided trade legible.
+
+Long term value stays at market rather than being discounted per team. The
+moment it stops being portable, two sides can no longer agree on what anything
+is worth, and the two-sided scale goes with it. Surplus sits alongside it.
 
 ## Projecting redraft value forward, at a measured rate
 
@@ -478,3 +556,45 @@ so building a three player side simulates the season once rather than three
 times, and the store carries a sequence number so a reply that arrives after a
 newer edit is dropped rather than repainting the panel with numbers for a trade
 that no longer exists.
+
+
+## A column that carries a source's name carries that source's value
+
+The Players table labelled a column "Rating", hinted it as "KeepTradeCut's
+dynasty value on a 0-100 scale", and then rendered
+`blendedRating(player, contentionWeight)` into it. The contention slider was
+being multiplied into a number attributed to somebody else.
+
+It was not a rounding difference. At a weight of 0.55 it lifted CeeDee Lamb
+from his real 74.6 to 80.2 and moved him from fourteenth on the board to
+seventh; it pushed Puka Nacua up seven points and pulled Brock Bowers down
+seven. Because the column was also the default sort key, the whole board
+reordered itself according to a setting, while claiming to show a market
+everyone can check independently.
+
+The bug survived because it is invisible at the far-left stop of the slider,
+where the blend equals the rating exactly. Anyone verifying it on a full
+rebuild team would have seen the right numbers.
+
+Rating is now the player's rating and VAR is that rating's value above
+replacement. The blend was briefly kept as its own column, and then removed
+outright: once every other column stated a source value, a column that mixed
+two of them by a slider had nothing to say that the two columns beside it did
+not say more clearly. The trade card's blended rating and blended VAR went with
+it — the card now shows both value-over-replacement figures, each against its
+own board, which is what it was already showing in a second attribute anyway.
+
+Nothing on the players table moves with the contention timeline now. The slider
+still drives posture, the two-sided trade scale, and the per-side sliders on it;
+it just no longer edits numbers attributed to a source.
+
+An audit against a live KeepTradeCut fetch confirms
+the boards themselves were never wrong: dynasty one-quarterback and superflex
+both match to a mean absolute difference of 0.08 across 463 players, the tight
+end premium variants match to 0.2, and the rookie pick tiers match to a tenth.
+
+Two other things fell out of the same read. The sort had `case 'longTerm'`
+twice, so ordering by Long term silently ordered by rating. And the browser
+smoke now asserts the board is monotonically descending in the Rating column,
+because both of these were display bugs that every unit test passed straight
+through.
