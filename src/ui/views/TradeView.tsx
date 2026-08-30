@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DraftPick, ValuedPlayer } from '../../engine/types';
 import { pickKey, pickLabel } from '../../engine/picks';
-import {
-  IDLE_EPSILON,
-  sideGain,
-  type PlayerUsage,
-  type SideGain,
-  type TradeSideResult,
-} from '../../engine/trade';
+import { IDLE_SHARE, sideGain, type SideGain, type TradeSideResult } from '../../engine/trade';
+import type { UsageReading } from '../../engine/usage';
 import { assessPosture, POSTURE_COPY } from '../../engine/posture';
 import type { Scenario } from '../../engine/scenario';
 import { useStore } from '../../state/store';
@@ -760,7 +755,7 @@ function TradeResultPanels({
       <Panel>
         <PanelHeader
           title="Assets exchanged"
-          subtitle="Market value, and what each player is actually doing for the roster he sits on. The gap between the two is why a trade can be good for both sides at once."
+          subtitle="What the market pays for each player, what he is worth to a team that starts him, and what this roster actually gets. The last two are measured over the same three seasons, so the gap between them is real: it is value the roster cannot extract, and it is why a trade can be good for both sides at once."
         />
         <div className="grid gap-px bg-white/[0.05] sm:grid-cols-2">
           {[sideA, sideB].map((side) => (
@@ -1030,7 +1025,7 @@ function AssetList({
   label: string;
   players: ValuedPlayer[];
   picks: DraftPick[];
-  usage: PlayerUsage[];
+  usage: UsageReading[];
   teamName: (rosterId: number) => string;
 }) {
   const byId = new Map(usage.map((u) => [u.playerId, u]));
@@ -1053,14 +1048,15 @@ function AssetList({
         </div>
         <div className="num flex gap-3 text-[0.625rem] uppercase tracking-[0.06em] text-ink-600">
           <span>market</span>
-          <span>in use</span>
+          <span>if started</span>
+          <span>your use</span>
         </div>
       </div>
       <ul className="mt-1 space-y-1">
         {players.map((p) => {
           const u = byId.get(p.id);
-          // The engine decides what counts as idle; the badge just reports it.
-          const idle = u != null && u.surplus > 1;
+          // Surplus is the share of his usable value the roster never sees.
+          const idle = u != null && u.horizon > 1 && u.idleShare >= IDLE_SHARE;
           return (
             <li key={p.id} className="flex items-center gap-2 text-[0.8125rem]">
               <PositionChip position={p.position} />
@@ -1070,10 +1066,13 @@ function AssetList({
                   surplus
                 </span>
               ) : null}
-              <span className="num w-10 text-right text-later-400">{value(u?.market ?? p.assetValue)}</span>
+              <span className="num w-10 text-right text-later-400">
+                {value(u?.market ?? p.assetValue)}
+              </span>
+              <span className="num w-10 text-right text-ink-400">{value(u?.horizon ?? 0)}</span>
               <span
                 className={`num w-10 text-right ${
-                  (u?.used ?? 0) > IDLE_EPSILON ? 'text-now-400' : 'text-ink-600'
+                  idle ? 'text-later-400' : (u?.used ?? 0) > 0.05 ? 'text-now-400' : 'text-ink-600'
                 }`}
               >
                 {value(u?.used ?? 0)}
@@ -1086,6 +1085,7 @@ function AssetList({
             <span className="min-w-0 flex-1 truncate text-ink-200">
               {pickLabel(pick, teamName(pick.originalRosterId))}
             </span>
+            <span className="num w-10 text-right text-ink-600">—</span>
             <span className="num w-10 text-right text-ink-600">—</span>
             <span className="num w-10 text-right text-ink-600">0.0</span>
           </li>

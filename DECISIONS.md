@@ -439,33 +439,59 @@ it chose over the wire, and the cheapest legal cut is charged against it.
 Overage a league already has is never charged: Sleeper counts injured reserve
 and taxi players in the same list, so a legal roster can read as over the limit.
 
-## Surplus is binary, because the two numbers are not comparable
+## Surplus is measured over a horizon, against like
 
 A player can be worth ten points on the open market and nothing at all to the
-team holding him — behind two starters and a backup, he does not change that
+team holding him — behind two starters and a backup, he does not move that
 team's strength by a hundredth of a point. Until both figures are visible, the
-trade that converts him into a pick reads as a plain loss, and that is the most
+trade converting him into a pick reads as a plain loss, and that was the most
 common way this calculator misled its reader.
 
-So every player who moves now carries two numbers: `market`, his dynasty value
-above replacement, and `used`, what his roster's strength actually loses
-without him.
+Getting the comparison right took two corrections.
 
-Surplus is deliberately NOT `market - used`. Those are not on the same footing:
-market is a price for a whole career and use is one season's contribution to
-one lineup. Subtracting them makes every good player look like surplus — in
-this league it ranks a franchise back at 69.8 market and 27.4 used ahead of a
-buried receiver at 10.0 and 0.0, which is exactly backwards.
+The first version subtracted one season of lineup contribution from a dynasty
+rating. Those price different spans — a rating covers a whole remaining career,
+call it eight years — so every good player came out looking like surplus. In
+this league it ranked a franchise back at 69.8 market and 27.4 used ahead of a
+buried receiver at 10.0 and 0.0, exactly backwards.
 
-The only comparison the two honestly support is the binary one: does this
-roster use him at all? So surplus is his whole market value when the answer is
-no, and nothing when the answer is yes. That ranks a sell list correctly and
-claims no precision it does not have.
+The second version dodged that by making surplus binary: his whole market value
+when the roster does not use him, nothing when it does. Correct as far as it
+went, and still wrong in the other direction. A single season is too short. A
+rookie behind two starters contributes nothing this year and everything two
+years from now, and a one-year window cannot tell him apart from a
+thirty-year-old in the same seat.
+
+So the reading now carries three numbers, and the subtraction happens between
+the two that share a footing:
+
+    market    dynasty value above replacement — portable currency, untouched
+    horizon   worth to a team that starts him, over three seasons
+    used      worth to THIS roster, over the same three seasons
+    surplus   horizon - used, floored at zero
+
+Both `horizon` and `used` are discounted averages of the same projected season
+values over the same window, so the difference is real: value this roster
+cannot extract. The weights sum to one, which keeps the result on the value
+scale — three seasons of a flat player is worth what one season is, not three
+times as much.
+
+The elite case is the test the design has to pass, and it does. A star starts
+for anyone, so his `used` sits close to his `horizon` on every roster in the
+league and his idle share stays low — you cannot buy one cheap by finding a
+team with no use for him, because there is no such team. Measured on the
+fixture league, the top players extract between 82% and 100% of their value
+while the median rostered player extracts 56%; the gap is depth players, which
+is the correct signal.
+
+Usage is marginal, and deliberately so: on a roster three deep at a position
+the next man up absorbs most of what a player does, so the team genuinely is
+not getting what the league would pay. That is what makes the number
+team-specific and what makes a two-sided trade legible.
 
 Long term value stays at market rather than being discounted per team. The
 moment it stops being portable, two sides can no longer agree on what anything
-is worth, and the whole premise of a two-sided scale goes with it. Surplus sits
-alongside it instead.
+is worth, and the two-sided scale goes with it. Surplus sits alongside it.
 
 ## Projecting redraft value forward, at a measured rate
 

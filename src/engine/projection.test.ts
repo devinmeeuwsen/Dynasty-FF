@@ -6,8 +6,8 @@ import {
   projectedRedraftVar,
   realisedFraction,
 } from './projection';
-import { playerUsage, rosterSpotEffect, rosterCapacity } from './rosterSpots';
-import { IDLE_EPSILON } from './trade';
+import { rosterSpotEffect, rosterCapacity } from './rosterSpots';
+import { horizonValue, horizonWeights, playerUsage, readUsage } from './usage';
 import { buildHarness } from './harness';
 import { evaluateScenario } from './scenario';
 import { DEFAULT_SETTINGS, type ValuedPlayer } from './types';
@@ -215,50 +215,94 @@ describe('roster spots', () => {
 });
 
 describe('what a player is worth to the team that holds him', () => {
-  it('separates market value from use, and calls the gap surplus', () => {
+  const H = {
+    usageHorizonYears: DEFAULT_SETTINGS.usageHorizonYears,
+    futureDiscountPerYear: DEFAULT_SETTINGS.futureDiscountPerYear,
+  };
+
+  it('weights the horizon so the reading stays on the value scale', () => {
+    const w = horizonWeights(3, 0.85);
+    expect(w).toHaveLength(3);
+    expect(w.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    // Nearer seasons count for more, and none is ever negative.
+    expect(w[0]).toBeGreaterThan(w[1]);
+    expect(w[1]).toBeGreaterThan(w[2]);
+    // A flat player is worth the same over any horizon: weights average, they
+    // do not accumulate. Three seasons of X is X, not 3X.
+    const flat = player({ longTerm: 0, redraftVar: 12 });
+    expect(horizonValue(flat, { usageHorizonYears: 1, futureDiscountPerYear: 0.9 })).toBeCloseTo(
+      horizonValue(flat, { usageHorizonYears: 5, futureDiscountPerYear: 0.9 }),
+      9,
+    );
+  });
+
+  it('lets a future asset earn more over three years than over one', () => {
+    const rising = player({ longTerm: 20, redraftVar: 10 });
+    const fading = player({ longTerm: -20, redraftVar: 30 });
+    const one = { usageHorizonYears: 1, futureDiscountPerYear: 0.9 };
+    const three = { usageHorizonYears: 3, futureDiscountPerYear: 0.9 };
+    expect(horizonValue(rising, three)).toBeGreaterThan(horizonValue(rising, one));
+    expect(horizonValue(fading, three)).toBeLessThan(horizonValue(fading, one));
+  });
+
+  it('reads a buried player as surplus and a used one as not', () => {
     const { shape, rosters, values } = buildHarness();
     const roster = rosters[0].playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
 
-    // Someone buried: real market value, no contribution to this lineup. This
-    // is the DK Metcalf case — worth something to somebody, nothing here.
-    const surplusOf = (p: ValuedPlayer) => {
-      const used = playerUsage(roster, shape, p.id);
-      return used > IDLE_EPSILON ? 0 : p.assetValue;
-    };
-
+    // Someone with real value who never reaches this lineup. The DK Metcalf
+    // case: worth something to somebody, nothing here.
     const buried = roster
-      .filter((p) => p.assetValue > 0 && playerUsage(roster, shape, p.id) < 1e-9)
-      .sort((a, b) => b.assetValue - a.assetValue)[0];
+      .map((p) => readUsage(roster, shape, p, H))
+      .filter((u) => u.horizon > 1 && u.used < 0.05)
+      .sort((a, b) => b.horizon - a.horizon)[0];
     expect(buried).toBeTruthy();
-    expect(surplusOf(buried)).toBeCloseTo(buried.assetValue, 9);
-
-    // Anyone the roster leans on comes out at zero however large his market
-    // value is. That is the property a naive `market - used` breaks: those two
-    // measure different horizons, so subtracting them lets a franchise player
-    // outrank a buried one purely by being good.
-    const used = roster
-      .map((p) => ({ p, used: playerUsage(roster, shape, p.id) }))
-      .filter((x) => x.used > IDLE_EPSILON);
-    expect(used.length).toBeGreaterThan(0);
-    for (const x of used) expect(surplusOf(x.p)).toBe(0);
-
-    // And at least one of them is worth more on the market than the buried
-    // player is, so the ranking is not simply tracking market value.
-    const richest = used.sort((a, b) => b.p.assetValue - a.p.assetValue)[0];
-    expect(richest.p.assetValue).toBeGreaterThan(buried.assetValue);
-    expect(surplusOf(richest.p)).toBeLessThan(surplusOf(buried));
+    expect(buried.surplus).toBeCloseTo(buried.horizon, 9);
+    expect(buried.idleShare).toBeCloseTo(1, 9);
   });
 
-  it('prices the same player differently on a thin roster than on a deep one', () => {
+  it('gives the best players a low idle share on whatever roster holds them', () => {
+    // The property the whole design turns on: a star starts for anyone, so you
+    // cannot buy him cheap by finding a team with no use for him.
     const { shape, rosters, values } = buildHarness();
-    const usage = rosters.map((r) => {
+    const readings = rosters.flatMap((r) => {
       const roster = r.playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
-      return roster.map((p) => playerUsage(roster, shape, p.id));
+      return roster.map((p) => readUsage(roster, shape, p, H));
     });
-    // Across the league, the same measurement produces a real spread rather
+    const elite = readings.sort((a, b) => b.horizon - a.horizon).slice(0, 12);
+    expect(elite.length).toBe(12);
+    for (const e of elite) {
+      expect(e.idleShare).toBeLessThan(0.5);
+    }
+    // And they are spread across the league rather than all on one roster.
+    expect(new Set(elite.map((e) => e.playerId)).size).toBe(12);
+  });
+
+  it('charges a deep roster for the player its own depth absorbs', () => {
+    const { shape, rosters, values } = buildHarness();
+    // The same measurement across the league produces a real spread rather
     // than collapsing to each player's own value.
-    const flat = usage.flat();
-    expect(Math.max(...flat)).toBeGreaterThan(0);
-    expect(Math.min(...flat)).toBe(0);
+    const shares = rosters.flatMap((r) => {
+      const roster = r.playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
+      return roster
+        .map((p) => readUsage(roster, shape, p, H))
+        .filter((u) => u.horizon > 1)
+        .map((u) => u.idleShare);
+    });
+    expect(Math.max(...shares)).toBeCloseTo(1, 6);
+    expect(Math.min(...shares)).toBeLessThan(0.2);
+  });
+
+  it('never subtracts a career price from a horizon, which is what broke before', () => {
+    const { shape, rosters, values } = buildHarness();
+    const roster = rosters[0].playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
+    for (const p of roster) {
+      const u = readUsage(roster, shape, p, H);
+      // Surplus comes off the horizon, never off `market`. A young player whose
+      // dynasty rating prices eight seasons must not read as surplus for the
+      // crime of having his best years outside the window.
+      expect(u.surplus).toBeLessThanOrEqual(u.horizon + 1e-9);
+      expect(u.surplus).toBeGreaterThanOrEqual(0);
+      expect(u.used).toBeCloseTo(playerUsage(roster, shape, p.id, H), 9);
+    }
   });
 });

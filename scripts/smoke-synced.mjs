@@ -336,7 +336,7 @@ if ((await addButtons.count()) === 0) {
       await page.waitForTimeout(3500);
       const two = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
       const flat = two.toLowerCase();
-      for (const want of ['roster spots', 'spot freed', 'market', 'in use']) {
+      for (const want of ['roster spots', 'spot freed', 'market', 'if started', 'your use']) {
         if (!flat.includes(want)) {
           errs.push(`two-for-one: "${want}" never appeared`);
         }

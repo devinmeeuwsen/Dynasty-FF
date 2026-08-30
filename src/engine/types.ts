@@ -179,6 +179,17 @@ export interface EngineSettings {
    * backup, which is the right order of magnitude for how managers treat them.
    */
   rosterSpotOptionValue: number;
+  /**
+   * How many seasons a player's value to his own roster is measured over.
+   *
+   * One season was too short and read every young player as useless: a rookie
+   * behind two starters contributes nothing this year and everything two years
+   * from now, and a single-season window cannot tell him apart from a
+   * thirty-year-old in the same seat. Three is the practical planning horizon
+   * in dynasty — far enough to see a breakout arrive, near enough that the
+   * projection is still worth something.
+   */
+  usageHorizonYears: number;
 }
 
 export type CurveKind = 'exponential' | 'power' | 'logistic';
@@ -205,6 +216,7 @@ export const DEFAULT_SETTINGS: EngineSettings = {
   draftOrderRule: 'reverse_final_standings',
   deadZoneThreshold: 0.01,
   rosterSpotOptionValue: 3,
+  usageHorizonYears: 3,
 };
 
 /** A team's roster, as the simulation needs it. */

@@ -37,31 +37,7 @@ export function rosterCapacity(shape: LeagueShape): number {
   return shape.starters.length + shape.benchSlots + shape.irSlots + shape.taxiSlots;
 }
 
-/**
- * What one player is actually doing for the roster that holds him.
- *
- * The same quantity `rosterEfficiency` reports, computed for a single player:
- * a starter loses his whole value, the first backup at a slot class loses the
- * share of weeks he would have covered, and anyone behind him is exactly zero.
- *
- * This is the number that makes a trade legible from both sides. A receiver
- * can be worth ten points on the open market and nothing at all to the team
- * holding him, and until you can see both figures the deal that converts him
- * into a pick reads as a loss.
- */
-export function playerUsage(
-  roster: ValuedPlayer[],
-  shape: LeagueShape,
-  playerId: string,
-): number {
-  const lineup = toLineup(roster);
-  const base = teamStrength(lineup, shape.starters).total;
-  const without = teamStrength(
-    lineup.filter((p) => p.id !== playerId),
-    shape.starters,
-  ).total;
-  return base - without;
-}
+
 
 export interface SpotMove {
   player: ValuedPlayer;
