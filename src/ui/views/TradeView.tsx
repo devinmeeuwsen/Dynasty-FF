@@ -10,7 +10,6 @@ import { useTeamName } from '../useTeamName';
 import { ContentionSlider } from '../components/ContentionSlider';
 import { FinishMatrixHeatmap } from '../components/FinishMatrix';
 import { PlayerTable } from '../components/PlayerTable';
-import { blendedRating, blendedVar } from '../../engine/values';
 import {
   Button,
   Callout,
@@ -185,7 +184,6 @@ function SideBuilder({
   const rosters = useStore((s) => s.rosters);
   const values = useStore((s) => s.values);
   const allPicks = useStore((s) => s.picks);
-  const weight = useStore((s) => s.settings.contentionWeight);
   const teamName = useTeamName();
   const teams = useStore((s) => s.shape.teams);
   // Baseline valuations, so a pick shows what it is worth before the trade is
@@ -286,20 +284,20 @@ function SideBuilder({
                   value={signed(p.longTerm)}
                   tone={timelineClass(p.longTerm)}
                 />
+                {/* Both value-over-replacement figures, each against its own
+                    board, rather than one number mixing them by a slider. The
+                    card used to carry a blended VAR and a blended rating, which
+                    disagreed with the players table and moved when nothing
+                    about the player had. */}
                 <Attr
                   label="VAR"
-                  value={signed(blendedVar(p, weight))}
-                  tone={deltaClass(blendedVar(p, weight), 0.05)}
+                  value={signed(p.ratingVar)}
+                  tone={deltaClass(p.ratingVar, 0.05)}
                 />
                 <Attr
-                  label="Over wire"
-                  value={`${signed(p.redraftVar)} / ${signed(p.ratingVar)}`}
-                  tone="text-ink-300"
-                />
-                <Attr
-                  label="Blended"
-                  value={value(blendedRating(p, weight))}
-                  tone="text-ink-300"
+                  label="Redraft VAR"
+                  value={signed(p.redraftVar)}
+                  tone={deltaClass(p.redraftVar, 0.05)}
                 />
               </dl>
             </li>
@@ -377,7 +375,6 @@ function SideBuilder({
         <div className="max-h-[26rem] overflow-y-auto">
           <PlayerTable
             players={rosterPlayers}
-            weight={weight}
             teamName={teamName}
             showOwner={false}
             pageSize={40}

@@ -235,7 +235,7 @@ if ((await addButtons.count()) === 0) {
     const card = (await page.locator('main ul li').first().innerText()).replace(/\s+/g, ' ');
     // The card uppercases its labels in CSS, so compare case-insensitively.
     const flat = card.toLowerCase();
-    for (const attr of ['rating', 'redraft', 'var', 'over wire']) {
+    for (const attr of ['rating', 'redraft', 'var', 'redraft var']) {
       if (!flat.includes(attr)) {
         errs.push(`trade builder: selected player card is missing ${attr} (${card.slice(0, 120)})`);
       }
@@ -381,6 +381,10 @@ if ((await addButtons.count()) === 0) {
     }
   }
   console.log(`    ratings descending across ${nums.length} rows: ${nums.join(' ')}`);
+  const heads = (await page.locator('main table thead').first().innerText()).toLowerCase();
+  if (heads.includes('blended')) {
+    errs.push('players board still carries a Blended column');
+  }
 }
 
 await page.locator('aside button', { hasText: /^League/i }).first().click();

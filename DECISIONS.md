@@ -576,9 +576,19 @@ The bug survived because it is invisible at the far-left stop of the slider,
 where the blend equals the rating exactly. Anyone verifying it on a full
 rebuild team would have seen the right numbers.
 
-Rating is now the player's rating, VAR is that rating's value above
-replacement, and the blend is its own column that says what it is — the only
-column the timeline moves. An audit against a live KeepTradeCut fetch confirms
+Rating is now the player's rating and VAR is that rating's value above
+replacement. The blend was briefly kept as its own column, and then removed
+outright: once every other column stated a source value, a column that mixed
+two of them by a slider had nothing to say that the two columns beside it did
+not say more clearly. The trade card's blended rating and blended VAR went with
+it — the card now shows both value-over-replacement figures, each against its
+own board, which is what it was already showing in a second attribute anyway.
+
+Nothing on the players table moves with the contention timeline now. The slider
+still drives posture, the two-sided trade scale, and the per-side sliders on it;
+it just no longer edits numbers attributed to a source.
+
+An audit against a live KeepTradeCut fetch confirms
 the boards themselves were never wrong: dynasty one-quarterback and superflex
 both match to a mean absolute difference of 0.08 across 463 players, the tight
 end premium variants match to 0.2, and the rookie pick tiers match to a tenth.
