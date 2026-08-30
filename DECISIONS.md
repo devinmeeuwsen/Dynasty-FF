@@ -392,28 +392,80 @@ team is never credited for a backup arrangement it could not actually field.
 The waiver wire still contributes nothing, at either line, because a free agent
 has a value above replacement of exactly zero by construction.
 
-## A freed roster spot is worth zero, and the cut on the other side is not
+## Superseded: a freed roster spot is worth zero
 
-The intuition that a two-for-one frees a seat and a free seat can hold a free
-agent is right about the shape and wrong about the sign. Every value in this
-application is measured above replacement, and replacement level IS the best
-free agent at that position, so the player who fills the empty seat is worth
-exactly zero. There is no honest way to book value there, and inventing one
-would double count against the replacement level that every other number is
-already measured against.
+The claim was that an empty seat earns nothing, because every value here is
+measured above replacement and replacement level IS the best free agent, so the
+player who fills the seat is worth exactly zero by construction.
 
-The cost of NOT having a seat is entirely real, and it was the half that was
-missing. A team at its roster limit that receives more bodies than it sends has
-to release somebody it chose to roster over the wire, and the cheapest legal
-cut is charged against it — in this season's strength and in long term value
-both. So the two-for-one asymmetry the intuition is pointing at does get
-priced. It is just booked against the side consolidating rather than credited
-to the side that ends up with the empty seat, which is where it belongs.
+That reasoning proves less than it appears to, and it took a user pushing back
+to see it. Value above replacement asks how much better a player is than one
+you could sign for free — a question that silently assumes you have a spot to
+put the free one in. When roster capacity binds, that assumption is precisely
+what is in doubt. The yardstick cannot measure the seat, and a limitation of
+the instrument was being reported as a result.
 
-Overage a league already has is never charged. Sleeper counts injured reserve
-and taxi players in the same list as everyone else, so a legal roster can read
-as over the limit; only bodies the trade itself adds beyond a team's headroom
-are ever cut.
+## What an open roster spot is worth
+
+An option, and a repeatable one. Sign a wire player; keep him if he climbs;
+drop him for nothing and draw again if he does not. The expectation of any
+single draw is zero, which is what replacement level means, but you hold the
+right and not the obligation to keep the result. So the seat earns
+
+    E[max(0, drift)]   rather than   E[drift]
+
+a call struck at the money and re-struck every week. Its whole value is
+volatility, and volatility is never negative. The intuition that an empty seat
+is worth something is the payoff structure of a call, which is why it feels
+like value even though the average signing is worthless.
+
+The default is 3, and unlike the 0.80 gap retention it is an ESTIMATE rather
+than a measurement — one snapshot cannot observe how often wire players break
+out. Twelve teams times roughly three speculative seats is thirty-six seats
+chasing maybe three to five players a season who go from unrostered to
+genuinely startable at around thirty points of value. That puts a speculative
+seat next to a mediocre first backup, which matches how managers treat them. It
+lives in settings precisely because it is a judgement rather than a finding.
+
+It lands in the win-now column AND the future column at the same size. That is
+not double counting: the scale is a weighted average, so a value present in
+both contributes exactly itself whatever the team's posture. It is also the
+correct behaviour — a wire breakout serves a contender as depth and a rebuilder
+as an asset, so the seat is worth the same to either and only the use differs.
+
+The cost of NOT having a seat is the other half, and it was already here. A
+team at its limit that receives more bodies than it sends must release somebody
+it chose over the wire, and the cheapest legal cut is charged against it.
+Overage a league already has is never charged: Sleeper counts injured reserve
+and taxi players in the same list, so a legal roster can read as over the limit.
+
+## Surplus is binary, because the two numbers are not comparable
+
+A player can be worth ten points on the open market and nothing at all to the
+team holding him — behind two starters and a backup, he does not change that
+team's strength by a hundredth of a point. Until both figures are visible, the
+trade that converts him into a pick reads as a plain loss, and that is the most
+common way this calculator misled its reader.
+
+So every player who moves now carries two numbers: `market`, his dynasty value
+above replacement, and `used`, what his roster's strength actually loses
+without him.
+
+Surplus is deliberately NOT `market - used`. Those are not on the same footing:
+market is a price for a whole career and use is one season's contribution to
+one lineup. Subtracting them makes every good player look like surplus — in
+this league it ranks a franchise back at 69.8 market and 27.4 used ahead of a
+buried receiver at 10.0 and 0.0, which is exactly backwards.
+
+The only comparison the two honestly support is the binary one: does this
+roster use him at all? So surplus is his whole market value when the answer is
+no, and nothing when the answer is yes. That ranks a sell list correctly and
+claims no precision it does not have.
+
+Long term value stays at market rather than being discounted per team. The
+moment it stops being portable, two sides can no longer agree on what anything
+is worth, and the whole premise of a two-sided scale goes with it. Surplus sits
+alongside it instead.
 
 ## Projecting redraft value forward, at a measured rate
 

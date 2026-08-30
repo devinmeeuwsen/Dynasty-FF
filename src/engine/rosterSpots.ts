@@ -5,19 +5,27 @@ import type { LineupPlayer } from './lineup';
 /**
  * What a roster spot is worth.
  *
- * The intuition behind the question is that a two for one frees a seat, and a
- * free seat can hold a free agent. The arithmetic says something sharper. Every
- * value in this application is measured above replacement, and replacement
- * level IS the best free agent at that position — so the player you sign into
- * the empty seat is worth exactly zero by construction. An open roster spot is
- * not an asset.
+ * An earlier version of this file argued that a freed seat is worth exactly
+ * zero, because every value here is measured above replacement and replacement
+ * level IS the best free agent. That reasoning proves less than it appears to.
+ * Value above replacement asks how much better a player is than one you could
+ * sign for free — a question that silently assumes you have a spot to put the
+ * free one in. When roster capacity binds, that assumption is precisely what is
+ * in doubt, so the yardstick cannot measure the seat.
  *
- * The cost of NOT having one is very real, and it is the half that was
- * missing. A team at its roster limit that receives more players than it sends
- * has to release somebody, and that somebody is a player it chose to roster
- * over the wire. So the two for one asymmetry is priced here — it is just
- * booked against the side consolidating, as a cut, rather than credited to the
- * side that ends up with the empty seat.
+ * What a seat is actually worth is an option. Sign a wire player; keep him if
+ * he climbs; drop him for nothing and draw again if he does not. The
+ * expectation of any single draw is zero, which is what replacement level
+ * means, but you hold the right and not the obligation to keep the result. So
+ * the seat earns E[max(0, drift)] rather than E[drift] — a call struck at the
+ * money, re-struck every week. Its whole value is volatility, and volatility is
+ * never negative.
+ *
+ * The cost of NOT having a seat is the other half. A team at its roster limit
+ * that receives more players than it sends has to release somebody it chose
+ * over the wire. So the two for one asymmetry is priced from both directions:
+ * credited to the side that ends up with the empty seat, and charged to the
+ * side that has to cut to fit.
  *
  * Nothing here is charged for overage a league already has. Sleeper counts
  * injured reserve and taxi players in the same list as everyone else, so a
@@ -27,6 +35,32 @@ import type { LineupPlayer } from './lineup';
 
 export function rosterCapacity(shape: LeagueShape): number {
   return shape.starters.length + shape.benchSlots + shape.irSlots + shape.taxiSlots;
+}
+
+/**
+ * What one player is actually doing for the roster that holds him.
+ *
+ * The same quantity `rosterEfficiency` reports, computed for a single player:
+ * a starter loses his whole value, the first backup at a slot class loses the
+ * share of weeks he would have covered, and anyone behind him is exactly zero.
+ *
+ * This is the number that makes a trade legible from both sides. A receiver
+ * can be worth ten points on the open market and nothing at all to the team
+ * holding him, and until you can see both figures the deal that converts him
+ * into a pick reads as a loss.
+ */
+export function playerUsage(
+  roster: ValuedPlayer[],
+  shape: LeagueShape,
+  playerId: string,
+): number {
+  const lineup = toLineup(roster);
+  const base = teamStrength(lineup, shape.starters).total;
+  const without = teamStrength(
+    lineup.filter((p) => p.id !== playerId),
+    shape.starters,
+  ).total;
+  return base - without;
 }
 
 export interface SpotMove {
@@ -46,11 +80,25 @@ export interface RosterSpotEffect {
   freed: number;
   /** Players who have to be released to fit under the limit. */
   cuts: SpotMove[];
-  /** Best free agents the freed spots can hold. Worth zero, and shown anyway. */
+  /**
+   * Best free agents the freed spots can hold. Each is worth zero above
+   * replacement by construction — the option value below is what the seat
+   * earns, and these name what would sit in it today.
+   */
   adds: SpotMove[];
-  /** Net change in this season's strength from the cuts and adds together. */
+  /** `freed` seats times the per-seat option value. Zero when none are freed. */
+  optionValue: number;
+  /**
+   * Net change in this season's strength: cuts, adds, and the option value.
+   *
+   * The option appears in this total AND in `assetDelta`, which is not double
+   * counting: the scale blends the two as a weighted average, so a value in
+   * both columns contributes exactly itself. That is the correct behaviour — a
+   * wire breakout serves a contender as depth and a rebuilder as an asset, so
+   * the seat is worth the same to either, and only the use differs.
+   */
   strengthDelta: number;
-  /** Net change in long term value from the same. */
+  /** Net change in long term value, on the same terms. */
   assetDelta: number;
 }
 
@@ -72,6 +120,7 @@ export function rosterSpotEffect(
   netBodies: number,
   freeAgents: ValuedPlayer[],
   baselineSize: number,
+  optionValuePerSpot: number,
 ): RosterSpotEffect {
   const capacity = rosterCapacity(shape);
   const headroom = Math.max(0, capacity - baselineSize);
@@ -141,6 +190,8 @@ export function rosterSpotEffect(
     }
   }
 
+  const optionValue = freed * Math.max(0, optionValuePerSpot);
+
   return {
     capacity,
     before: baselineSize,
@@ -148,8 +199,9 @@ export function rosterSpotEffect(
     freed,
     cuts,
     adds,
-    strengthDelta,
-    assetDelta,
+    optionValue,
+    strengthDelta: strengthDelta + optionValue,
+    assetDelta: assetDelta + optionValue,
   };
 }
 

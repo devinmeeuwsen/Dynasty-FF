@@ -1,7 +1,12 @@
 import type { DraftPick, FinishMatrix, TeamRoster, ValuedPlayer } from './types';
 import { pickKey } from './picks';
 import { evaluateScenario, type Scenario, type ScenarioInput } from './scenario';
-import { bestFreeAgents, rosterSpotEffect, type RosterSpotEffect } from './rosterSpots';
+import {
+  bestFreeAgents,
+  playerUsage,
+  rosterSpotEffect,
+  type RosterSpotEffect,
+} from './rosterSpots';
 
 /**
  * The trade calculator.
@@ -61,10 +66,48 @@ export interface TradeSideResult {
   pickBreakdown: PickCapitalChange[];
   playersIn: ValuedPlayer[];
   playersOut: ValuedPlayer[];
+  /**
+   * What each player leaving actually did for this roster, and what the market
+   * pays for him.
+   *
+   * The gap between the two is the whole reason a trade can be good for both
+   * sides. A receiver behind two starters and a backup is worth ten points to
+   * somebody and nothing to the team holding him; without both figures the
+   * deal that converts him into a pick reads as a plain loss.
+   */
+  outgoingUsage: PlayerUsage[];
+  /** The same for players arriving, measured against the roster receiving them. */
+  incomingUsage: PlayerUsage[];
   picksIn: DraftPick[];
   picksOut: DraftPick[];
   expectedFinishBefore: number;
   expectedFinishAfter: number;
+}
+
+/** Below this a player is doing nothing for his roster, not merely little. */
+export const IDLE_EPSILON = 0.05;
+
+export interface PlayerUsage {
+  playerId: string;
+  /** Value above replacement on the open market: his `assetValue`. */
+  market: number;
+  /** What this roster's strength loses without him, backups included. */
+  used: number;
+  /**
+   * Market value parked where it does nothing.
+   *
+   * Deliberately NOT `market - used`. Those two are not on the same footing:
+   * `market` is a dynasty price for a whole career and `used` is one season's
+   * contribution to one lineup, so subtracting them makes every good player
+   * look like surplus — it would rank a franchise back who starts every week
+   * ahead of a buried receiver, which is exactly backwards.
+   *
+   * The only comparison the two numbers honestly support is the binary one:
+   * does this roster use him at all? So surplus is his whole market value when
+   * the answer is no, and nothing when the answer is yes. That ranks a sell
+   * list correctly and claims no precision it does not have.
+   */
+  surplus: number;
 }
 
 export interface DeadZoneVerdict {
@@ -197,19 +240,39 @@ function sideResult(
     .filter(Boolean) as DraftPick[];
   const picksIn = other.picks.map((k) => beforeByKey.get(k)).filter(Boolean) as DraftPick[];
 
-  const baselineSize =
-    base.rosters.find((r) => r.rosterId === side.rosterId)?.playerIds.length ?? 0;
+  const beforeRoster = (
+    base.rosters.find((r) => r.rosterId === side.rosterId)?.playerIds ?? []
+  )
+    .map(value)
+    .filter(Boolean) as ValuedPlayer[];
+  const baselineSize = beforeRoster.length;
+
+  const usageOf = (roster: ValuedPlayer[], player: ValuedPlayer): PlayerUsage => {
+    const used = playerUsage(roster, base.shape, player.id);
+    return {
+      playerId: player.id,
+      market: player.assetValue,
+      used,
+      surplus: used > IDLE_EPSILON ? 0 : player.assetValue,
+    };
+  };
+  // Outgoing players are measured on the roster they are leaving; incoming on
+  // the roster receiving them, which is this one with them already added.
+  const outgoingUsage = playersOut.map((p) => usageOf(beforeRoster, p));
   const afterRoster = (
     afterRosters.find((r) => r.rosterId === side.rosterId)?.playerIds ?? []
   )
     .map(value)
     .filter(Boolean) as ValuedPlayer[];
+  const incomingUsage = playersIn.map((p) => usageOf(afterRoster, p));
+
   const rosterSpots = rosterSpotEffect(
     afterRoster,
     base.shape,
     playersIn.length - playersOut.length,
     freeAgents,
     baselineSize,
+    base.settings.rosterSpotOptionValue,
   );
 
   return {
@@ -228,6 +291,8 @@ function sideResult(
     pickBreakdown,
     playersIn,
     playersOut,
+    outgoingUsage,
+    incomingUsage,
     picksIn,
     picksOut,
     expectedFinishBefore: expectedFinish(before.result.finish, side.rosterId),

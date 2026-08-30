@@ -6,10 +6,13 @@ import {
   projectedRedraftVar,
   realisedFraction,
 } from './projection';
-import { rosterSpotEffect, rosterCapacity } from './rosterSpots';
+import { playerUsage, rosterSpotEffect, rosterCapacity } from './rosterSpots';
+import { IDLE_EPSILON } from './trade';
 import { buildHarness } from './harness';
 import { evaluateScenario } from './scenario';
-import type { ValuedPlayer } from './types';
+import { DEFAULT_SETTINGS, type ValuedPlayer } from './types';
+
+const OPTION = DEFAULT_SETTINGS.rosterSpotOptionValue;
 
 function player(over: Partial<ValuedPlayer>): ValuedPlayer {
   return {
@@ -148,7 +151,7 @@ describe('roster spots', () => {
   it('charges nothing when the bodies balance', () => {
     const { scenario, rosters, values } = buildHarness();
     const roster = rosters[0].playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
-    const effect = rosterSpotEffect(roster, scenario.shape, 0, [], roster.length);
+    const effect = rosterSpotEffect(roster, scenario.shape, 0, [], roster.length, OPTION);
     expect(effect.cuts).toHaveLength(0);
     expect(effect.freed).toBe(0);
     expect(effect.strengthDelta).toBe(0);
@@ -160,7 +163,7 @@ describe('roster spots', () => {
     const capacity = rosterCapacity(scenario.shape);
     // Fill to the limit, then take back two more bodies than are sent.
     const full = roster.slice(0, capacity);
-    const effect = rosterSpotEffect(full, scenario.shape, 2, [], capacity);
+    const effect = rosterSpotEffect(full, scenario.shape, 2, [], capacity, OPTION);
     expect(effect.cuts).toHaveLength(2);
     expect(effect.strengthDelta).toBeLessThanOrEqual(0);
     // The cheapest cut is chosen, so no other pair could cost less.
@@ -172,19 +175,90 @@ describe('roster spots', () => {
   it('never charges for overage a league already has', () => {
     const { scenario, rosters, values } = buildHarness();
     const roster = rosters[0].playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
-    const effect = rosterSpotEffect(roster, scenario.shape, 0, [], roster.length + 50);
+    const effect = rosterSpotEffect(roster, scenario.shape, 0, [], roster.length + 50, OPTION);
     expect(effect.cuts).toHaveLength(0);
   });
 
-  it('prices a freed spot at what the wire is worth, which is nothing', () => {
+  it('prices a freed spot as an option, not as the free agent who fills it', () => {
     const { scenario, rosters, values } = buildHarness();
     const roster = rosters[0].playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
     const freeAgents = [...scenario.values.values()].filter((v) => v.ownerRosterId == null);
     expect(freeAgents.length).toBeGreaterThan(0);
-    const effect = rosterSpotEffect(roster, scenario.shape, -1, freeAgents, roster.length + 1);
+    const effect = rosterSpotEffect(roster, scenario.shape, -1, freeAgents, roster.length + 1, OPTION);
+
     expect(effect.freed).toBe(1);
+    // The player who fills it is still worth exactly zero above replacement.
     expect(effect.adds).toHaveLength(1);
-    expect(effect.strengthDelta).toBe(0);
-    expect(effect.assetDelta).toBe(0);
+    expect(effect.adds[0].strengthDelta).toBe(0);
+    expect(effect.adds[0].assetDelta).toBe(0);
+    // The seat is worth the option it carries, in both columns. Appearing
+    // twice is deliberate: the scale is a weighted average, so a value in both
+    // contributes exactly itself whatever the team's posture.
+    expect(effect.optionValue).toBe(OPTION);
+    expect(effect.strengthDelta).toBe(OPTION);
+    expect(effect.assetDelta).toBe(OPTION);
+  });
+
+  it('scales the option with the number of seats, and pays nothing for none', () => {
+    const { scenario, rosters, values } = buildHarness();
+    const roster = rosters[0].playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
+    const free = [...scenario.values.values()].filter((v) => v.ownerRosterId == null);
+    const two = rosterSpotEffect(roster, scenario.shape, -2, free, roster.length + 2, OPTION);
+    expect(two.optionValue).toBeCloseTo(2 * OPTION, 12);
+
+    const even = rosterSpotEffect(roster, scenario.shape, 0, free, roster.length, OPTION);
+    expect(even.optionValue).toBe(0);
+    // A team taking on bodies is never paid an option for seats it lost.
+    const overfull = rosterSpotEffect(roster, scenario.shape, 3, free, roster.length, OPTION);
+    expect(overfull.optionValue).toBe(0);
+  });
+});
+
+describe('what a player is worth to the team that holds him', () => {
+  it('separates market value from use, and calls the gap surplus', () => {
+    const { shape, rosters, values } = buildHarness();
+    const roster = rosters[0].playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
+
+    // Someone buried: real market value, no contribution to this lineup. This
+    // is the DK Metcalf case — worth something to somebody, nothing here.
+    const surplusOf = (p: ValuedPlayer) => {
+      const used = playerUsage(roster, shape, p.id);
+      return used > IDLE_EPSILON ? 0 : p.assetValue;
+    };
+
+    const buried = roster
+      .filter((p) => p.assetValue > 0 && playerUsage(roster, shape, p.id) < 1e-9)
+      .sort((a, b) => b.assetValue - a.assetValue)[0];
+    expect(buried).toBeTruthy();
+    expect(surplusOf(buried)).toBeCloseTo(buried.assetValue, 9);
+
+    // Anyone the roster leans on comes out at zero however large his market
+    // value is. That is the property a naive `market - used` breaks: those two
+    // measure different horizons, so subtracting them lets a franchise player
+    // outrank a buried one purely by being good.
+    const used = roster
+      .map((p) => ({ p, used: playerUsage(roster, shape, p.id) }))
+      .filter((x) => x.used > IDLE_EPSILON);
+    expect(used.length).toBeGreaterThan(0);
+    for (const x of used) expect(surplusOf(x.p)).toBe(0);
+
+    // And at least one of them is worth more on the market than the buried
+    // player is, so the ranking is not simply tracking market value.
+    const richest = used.sort((a, b) => b.p.assetValue - a.p.assetValue)[0];
+    expect(richest.p.assetValue).toBeGreaterThan(buried.assetValue);
+    expect(surplusOf(richest.p)).toBeLessThan(surplusOf(buried));
+  });
+
+  it('prices the same player differently on a thin roster than on a deep one', () => {
+    const { shape, rosters, values } = buildHarness();
+    const usage = rosters.map((r) => {
+      const roster = r.playerIds.map((id) => values.get(id)!) as ValuedPlayer[];
+      return roster.map((p) => playerUsage(roster, shape, p.id));
+    });
+    // Across the league, the same measurement produces a real spread rather
+    // than collapsing to each player's own value.
+    const flat = usage.flat();
+    expect(Math.max(...flat)).toBeGreaterThan(0);
+    expect(Math.min(...flat)).toBe(0);
   });
 });

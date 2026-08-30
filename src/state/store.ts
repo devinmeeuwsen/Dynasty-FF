@@ -332,7 +332,8 @@ export const useStore = create<State & Actions>((set, get) => ({
       'pickBaseRank' in patch ||
       'pickExponent' in patch ||
       'futureDiscountPerYear' in patch ||
-      'futureUncertaintyPerYear' in patch;
+      'futureUncertaintyPerYear' in patch ||
+      'rosterSpotOptionValue' in patch;
     if (needsResim && get().mode === 'synced') void get().runBaseline();
     persistNow(get());
   },

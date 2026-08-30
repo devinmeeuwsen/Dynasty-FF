@@ -323,6 +323,32 @@ if ((await addButtons.count()) === 0) {
         errs.push(`trade auto-evaluate: "${want}" never appeared`);
       }
     }
+
+    // A second player on one side makes it a two for one, which is the shape
+    // that frees a seat on the other. Both halves of the roster-spot model —
+    // the option credited for the seat and the surplus reading on the player
+    // who moves — only appear on an uneven deal, so the smoke has to build one.
+    const addA2 = sideA
+      .locator('table tbody tr button', { hasText: /^Add$/ })
+      .first();
+    if (await addA2.count()) {
+      await addA2.click();
+      await page.waitForTimeout(3500);
+      const two = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+      const flat = two.toLowerCase();
+      for (const want of ['roster spots', 'spot freed', 'market', 'in use']) {
+        if (!flat.includes(want)) {
+          errs.push(`two-for-one: "${want}" never appeared`);
+        }
+      }
+      const spots = two.match(/Roster spots.{0,300}/);
+      console.log('  roster spots:', spots ? spots[0] : '(missing)');
+      const assets = two.match(/Assets exchanged.{0,320}/);
+      console.log('  assets:', assets ? assets[0] : '(missing)');
+      await page.screenshot({ path: path.join(OUT, 'trade-two-for-one.png'), fullPage: true });
+    } else {
+      errs.push('two-for-one: no second Add button on side A');
+    }
     const scale = after.match(/What each side gains.{0,320}/);
     console.log('  auto-evaluated:', scale ? scale[0] : '(missing)');
     await page.screenshot({ path: path.join(OUT, 'trade-scale.png'), fullPage: true });

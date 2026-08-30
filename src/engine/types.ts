@@ -161,6 +161,24 @@ export interface EngineSettings {
   draftOrderRule: DraftOrderRule;
   /** Championship-probability gain below which the dead zone warning fires. */
   deadZoneThreshold: number;
+  /**
+   * What one open roster spot is worth, in value above replacement.
+   *
+   * Not the value of the free agent who fills it — that is zero by
+   * construction, because replacement level IS the best free agent. This is
+   * the value of the OPTION the spot carries: sign a wire player, keep him if
+   * he climbs, drop him for nothing and draw again if he does not. The
+   * expectation of a draw is zero; the option is worth its volatility, which
+   * is never negative.
+   *
+   * The default is an estimate, not a measurement, and it is here in settings
+   * for exactly that reason. Twelve teams times roughly three speculative
+   * spots is thirty-six spots chasing maybe three to five players a season who
+   * go from unrostered to genuinely startable at around thirty points of value
+   * — call it three. That lands a speculative spot next to a mediocre first
+   * backup, which is the right order of magnitude for how managers treat them.
+   */
+  rosterSpotOptionValue: number;
 }
 
 export type CurveKind = 'exponential' | 'power' | 'logistic';
@@ -186,6 +204,7 @@ export const DEFAULT_SETTINGS: EngineSettings = {
   futureUncertaintyPerYear: 0.35,
   draftOrderRule: 'reverse_final_standings',
   deadZoneThreshold: 0.01,
+  rosterSpotOptionValue: 3,
 };
 
 /** A team's roster, as the simulation needs it. */

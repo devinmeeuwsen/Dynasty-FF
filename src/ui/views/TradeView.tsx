@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DraftPick, ValuedPlayer } from '../../engine/types';
 import { pickKey, pickLabel } from '../../engine/picks';
-import { sideGain, type SideGain, type TradeSideResult } from '../../engine/trade';
+import {
+  IDLE_EPSILON,
+  sideGain,
+  type PlayerUsage,
+  type SideGain,
+  type TradeSideResult,
+} from '../../engine/trade';
 import { assessPosture, POSTURE_COPY } from '../../engine/posture';
 import type { Scenario } from '../../engine/scenario';
 import { useStore } from '../../state/store';
@@ -49,8 +55,6 @@ const AUTO_EVALUATE_MS = 300;
  */
 export function TradeView() {
   const rosters = useStore((s) => s.rosters);
-  const values = useStore((s) => s.values);
-  const picks = useStore((s) => s.picks);
   const userRosterId = useStore((s) => s.userRosterId);
   const scenario = useStore((s) => s.scenario);
   const setProposal = useStore((s) => s.setProposal);
@@ -160,8 +164,6 @@ export function TradeView() {
         <TradeResultPanels
           result={tradeResult}
           teamName={teamName}
-          picks={picks}
-          values={values}
           deadZoneThreshold={settings.deadZoneThreshold}
           payoutIsWinnerTakeAll={
             settings.payoutWeights.length === 1 && settings.payoutWeights[0] === 1
@@ -611,14 +613,11 @@ function GainBar({ gained, scale }: { gained: number; scale: number }) {
 function TradeResultPanels({
   result,
   teamName,
-  values,
   deadZoneThreshold,
   payoutIsWinnerTakeAll,
 }: {
   result: import('../../engine/trade').TradeResult;
   teamName: (rosterId: number) => string;
-  picks: DraftPick[];
-  values: Map<string, ValuedPlayer>;
   deadZoneThreshold: number;
   payoutIsWinnerTakeAll: boolean;
 }) {
@@ -761,7 +760,7 @@ function TradeResultPanels({
       <Panel>
         <PanelHeader
           title="Assets exchanged"
-          subtitle="What each side gives up and receives, at current values."
+          subtitle="Market value, and what each player is actually doing for the roster he sits on. The gap between the two is why a trade can be good for both sides at once."
         />
         <div className="grid gap-px bg-white/[0.05] sm:grid-cols-2">
           {[sideA, sideB].map((side) => (
@@ -769,8 +768,20 @@ function TradeResultPanels({
               <div className="text-[0.8125rem] font-semibold text-ink-100">
                 {teamName(side.rosterId)}
               </div>
-              <AssetList label="Out" players={side.playersOut} picks={side.picksOut} teamName={teamName} values={values} />
-              <AssetList label="In" players={side.playersIn} picks={side.picksIn} teamName={teamName} values={values} />
+              <AssetList
+                label="Out"
+                players={side.playersOut}
+                picks={side.picksOut}
+                usage={side.outgoingUsage}
+                teamName={teamName}
+              />
+              <AssetList
+                label="In"
+                players={side.playersIn}
+                picks={side.picksIn}
+                usage={side.incomingUsage}
+                teamName={teamName}
+              />
             </div>
           ))}
         </div>
@@ -788,17 +799,17 @@ function TradeResultPanels({
 }
 
 /**
- * Roster spots.
+ * Roster spots, priced from both directions.
  *
- * The intuition is that a two for one frees a seat and a free seat is worth
- * something. The arithmetic disagrees, and it is worth showing why rather than
- * hiding a zero: every value here is measured above replacement, and
- * replacement level IS the best free agent, so the player who fills the empty
- * seat is worth exactly nothing by construction.
+ * A freed seat is worth an option, not a player. The free agent who fills it is
+ * worth exactly zero above replacement — replacement level IS the best free
+ * agent — but you may keep him if he climbs and drop him for nothing if he does
+ * not, then draw again. The average draw is worthless; the right to keep the
+ * good ones is not, and that is what the seat earns.
  *
- * The cost of not having a seat is entirely real, and this is where it lands.
- * A team at its limit that takes back more bodies than it sends has to release
- * someone it chose over the wire, and that release is charged here.
+ * The cost of not having a seat is the other half. A team at its limit that
+ * takes back more bodies than it sends has to release someone it chose over the
+ * wire, and that release is charged here.
  */
 function RosterSpots({
   sides,
@@ -865,8 +876,13 @@ function RosterSpots({
 
               {spots.freed > 0 ? (
                 <div className="mt-2">
-                  <div className="text-[0.6875rem] font-medium uppercase tracking-[0.09em] text-ink-400">
-                    {spots.freed} spot{spots.freed === 1 ? '' : 's'} freed
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="text-[0.6875rem] font-medium uppercase tracking-[0.09em] text-good-500">
+                      {spots.freed} spot{spots.freed === 1 ? '' : 's'} freed
+                    </div>
+                    <span className="num text-[0.875rem] font-semibold text-good-500">
+                      {signed(spots.optionValue, 1)}
+                    </span>
                   </div>
                   <ul className="mt-1 space-y-1">
                     {spots.adds.map((add) => (
@@ -875,21 +891,28 @@ function RosterSpots({
                         <span className="min-w-0 flex-1 truncate text-ink-200">
                           {add.player.name}
                         </span>
-                        <span className="num text-ink-400">{signed(add.strengthDelta, 1)}</span>
+                        <span className="num text-[0.6875rem] text-ink-600">
+                          {value(add.player.rating)} rating · {signed(add.strengthDelta, 1)} over
+                          replacement
+                        </span>
                       </li>
                     ))}
                   </ul>
                   <p className="mt-1.5 text-[0.6875rem] leading-relaxed text-ink-500">
-                    Best available, and worth {signed(spots.strengthDelta, 1)} — replacement level
-                    is defined as the best free agent, so an empty seat is flexibility rather than
-                    value. What it saves you is the cut on the other side of this panel.
+                    Best available today, and worth nothing over replacement — by definition, since
+                    replacement level IS the best free agent. The{' '}
+                    <span className="num text-good-500">{signed(spots.optionValue, 1)}</span> is the
+                    seat, not the signing: you may keep whoever climbs and drop whoever does not,
+                    then draw again. It counts toward this season and toward the future both, at
+                    the same size, because a wire breakout serves a contender as depth and a
+                    rebuilder as an asset.
                   </p>
                 </div>
               ) : null}
 
               {spots.cuts.length === 0 && spots.freed === 0 ? (
                 <p className="mt-2 text-[0.75rem] text-ink-500">
-                  Even bodies. Nothing to release, nothing to fill.
+                  Even bodies. No seat freed, nothing to release.
                 </p>
               ) : null}
             </div>
@@ -988,18 +1011,30 @@ function PickBreakdown({
   );
 }
 
+/**
+ * Every player who moves, with the two numbers that decide whether the deal
+ * makes sense: what the market pays for him, and what the roster he sits on is
+ * actually getting.
+ *
+ * A receiver behind two starters and a backup can be worth ten points to
+ * somebody and zero here. Reading only the market number makes converting him
+ * into a pick look like a plain loss; reading both makes it obvious.
+ */
 function AssetList({
   label,
   players,
   picks,
+  usage,
   teamName,
 }: {
   label: string;
   players: ValuedPlayer[];
   picks: DraftPick[];
+  usage: PlayerUsage[];
   teamName: (rosterId: number) => string;
-  values: Map<string, ValuedPlayer>;
 }) {
+  const byId = new Map(usage.map((u) => [u.playerId, u]));
+
   if (players.length + picks.length === 0) {
     return (
       <div className="mt-3">
@@ -1012,21 +1047,47 @@ function AssetList({
   }
   return (
     <div className="mt-3">
-      <div className="text-[0.6875rem] font-medium uppercase tracking-[0.09em] text-ink-500">
-        {label}
+      <div className="flex items-baseline justify-between">
+        <div className="text-[0.6875rem] font-medium uppercase tracking-[0.09em] text-ink-500">
+          {label}
+        </div>
+        <div className="num flex gap-3 text-[0.625rem] uppercase tracking-[0.06em] text-ink-600">
+          <span>market</span>
+          <span>in use</span>
+        </div>
       </div>
       <ul className="mt-1 space-y-1">
-        {players.map((p) => (
-          <li key={p.id} className="flex items-center gap-2 text-[0.8125rem]">
-            <PositionChip position={p.position} />
-            <span className="min-w-0 flex-1 truncate text-ink-200">{p.name}</span>
-            <span className="num text-now-400">{value(p.lineupValue)}</span>
-            <span className="num text-later-400">{value(p.assetValue)}</span>
-          </li>
-        ))}
+        {players.map((p) => {
+          const u = byId.get(p.id);
+          // The engine decides what counts as idle; the badge just reports it.
+          const idle = u != null && u.surplus > 1;
+          return (
+            <li key={p.id} className="flex items-center gap-2 text-[0.8125rem]">
+              <PositionChip position={p.position} />
+              <span className="min-w-0 flex-1 truncate text-ink-200">{p.name}</span>
+              {idle ? (
+                <span className="shrink-0 rounded bg-later-500/15 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-later-400">
+                  surplus
+                </span>
+              ) : null}
+              <span className="num w-10 text-right text-later-400">{value(u?.market ?? p.assetValue)}</span>
+              <span
+                className={`num w-10 text-right ${
+                  (u?.used ?? 0) > IDLE_EPSILON ? 'text-now-400' : 'text-ink-600'
+                }`}
+              >
+                {value(u?.used ?? 0)}
+              </span>
+            </li>
+          );
+        })}
         {picks.map((pick) => (
-          <li key={pickKey(pick)} className="text-[0.8125rem] text-ink-200">
-            {pickLabel(pick, teamName(pick.originalRosterId))}
+          <li key={pickKey(pick)} className="flex items-center gap-2 text-[0.8125rem]">
+            <span className="min-w-0 flex-1 truncate text-ink-200">
+              {pickLabel(pick, teamName(pick.originalRosterId))}
+            </span>
+            <span className="num w-10 text-right text-ink-600">—</span>
+            <span className="num w-10 text-right text-ink-600">0.0</span>
           </li>
         ))}
       </ul>
