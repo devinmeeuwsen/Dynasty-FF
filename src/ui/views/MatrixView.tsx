@@ -1,11 +1,14 @@
 import { useMemo } from 'react';
 import { expectedPayout } from '../../engine/season';
+import { STARTER_MISS_RATE } from '../../engine/depth';
+import { GAP_RETENTION, realisedFraction } from '../../engine/projection';
 import { useStore } from '../../state/store';
 import { useTeamName } from '../useTeamName';
+import { useProjection } from '../useProjection';
 import { FinishMatrixHeatmap } from '../components/FinishMatrix';
 import { TeamBars } from '../components/charts';
 import { Button, Callout, EmptyState, Panel, PanelHeader, Skeleton, Stat } from '../components/primitives';
-import { ordinal, percent, value } from '../format';
+import { ordinal, percent, signed, value } from '../format';
 
 export function MatrixView() {
   const scenario = useStore((s) => s.scenario);
@@ -17,6 +20,7 @@ export function MatrixView() {
   const elapsed = useStore((s) => s.simElapsedMs);
   const teamName = useTeamName();
   const league = useStore((s) => s.league);
+  const projection = useProjection();
 
   const playoffTeams = league?.playoffTeams ?? 6;
 
@@ -44,6 +48,11 @@ export function MatrixView() {
         expected: finish.rows[i].reduce((acc, p, j) => acc + p * (j + 1), 0),
         expectedSeed: regularRow.reduce((acc, p, j) => acc + p * (j + 1), 0),
         strength: scenario.strengths.get(rosterId) ?? 0,
+        starting: scenario.startingStrength.get(rosterId) ?? 0,
+        depth: scenario.depthByTeam.get(rosterId)?.total ?? 0,
+        redraftValue: scenario.winNowByTeam.get(rosterId) ?? 0,
+        dynastyValue: scenario.longTermByTeam.get(rosterId) ?? 0,
+        capital: scenario.capitalByTeam.get(rosterId) ?? 0,
         points: scenario.result.meanPoints.get(rosterId) ?? 0,
       };
     });
@@ -210,6 +219,141 @@ export function MatrixView() {
         </p>
       </Panel>
 
+      <Panel className="animate-rise">
+        <PanelHeader
+          title="Where the value sits"
+          subtitle="Two separate questions, answered side by side. Redraft value is what a roster is worth for this season; future value is the dynasty rating of the same players plus the picks the team holds. A team can lead one column and trail the other, and that gap is the whole reason a trade market exists."
+        />
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-[0.8125rem]">
+            <thead className="text-[0.6875rem] uppercase tracking-[0.08em] text-ink-400">
+              <tr className="border-b border-white/[0.06]">
+                <th className="py-2 pl-4 text-left font-medium sm:pl-5">Team</th>
+                <th className="px-3 py-2 text-right font-medium text-now-400">Redraft</th>
+                <th className="px-3 py-2 text-right font-medium">Dynasty</th>
+                <th className="px-3 py-2 text-right font-medium">Picks</th>
+                <th className="py-2 pr-4 text-right font-medium text-later-400 sm:pr-5">Future</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...derived]
+                .sort((a, b) => b.redraftValue - a.redraftValue)
+                .map((row) => (
+                  <tr
+                    key={row.rosterId}
+                    className={`border-b border-white/[0.035] ${
+                      row.rosterId === userRosterId ? 'bg-blend-500/[0.05]' : ''
+                    }`}
+                  >
+                    <td className="max-w-[12rem] truncate py-2 pl-4 text-ink-200 sm:pl-5">
+                      {row.name}
+                    </td>
+                    <td className="num px-3 py-2 text-right font-semibold text-now-400">
+                      {value(row.redraftValue, 0)}
+                    </td>
+                    <td className="num px-3 py-2 text-right text-ink-300">
+                      {value(row.dynastyValue, 0)}
+                    </td>
+                    <td className="num px-3 py-2 text-right text-ink-400">
+                      {value(row.capital, 0)}
+                    </td>
+                    <td className="num py-2 pr-4 text-right font-semibold text-later-400 sm:pr-5">
+                      {value(row.dynastyValue + row.capital, 0)}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="border-t border-white/[0.06] px-4 py-3 text-[0.75rem] leading-relaxed text-ink-400 sm:px-5">
+          Every number is value above replacement summed over the whole roster, so a bench full of
+          waiver-level players adds nothing to any column. Picks are long term only.
+        </p>
+      </Panel>
+
+      {projection ? (
+        <Panel className="animate-rise">
+          <PanelHeader
+            title="Where this is heading"
+            subtitle={`The same redraft column, run forward. Long term value is a player's dynasty rating minus his redraft value — a claim that his production has not arrived yet, or that it is already leaving — so letting that claim play out is what projects the board. A balanced player holds his value, a future asset gains, a win now player fades.`}
+          />
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[38rem] text-[0.8125rem]">
+              <thead className="text-[0.6875rem] uppercase tracking-[0.08em] text-ink-400">
+                <tr className="border-b border-white/[0.06]">
+                  <th className="py-2 pl-4 text-left font-medium sm:pl-5">Team</th>
+                  <th className="px-3 py-2 text-right font-medium">{projection.baseSeason}</th>
+                  <th className="px-3 py-2 text-right font-medium">{projection.baseSeason + 1}</th>
+                  <th className="px-3 py-2 text-right font-medium">{projection.baseSeason + 2}</th>
+                  <th className="px-3 py-2 text-right font-medium">Change</th>
+                  <th className="py-2 pr-4 text-right font-medium sm:pr-5">Order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...projection.rows]
+                  .sort((a, b) => a.rank[2] - b.rank[2])
+                  .map((row) => {
+                    const move = row.move[2];
+                    return (
+                      <tr
+                        key={row.rosterId}
+                        className={`border-b border-white/[0.035] ${
+                          row.rosterId === userRosterId ? 'bg-blend-500/[0.05]' : ''
+                        }`}
+                      >
+                        <td className="max-w-[12rem] truncate py-2 pl-4 text-ink-200 sm:pl-5">
+                          {teamName(row.rosterId)}
+                        </td>
+                        <td className="num px-3 py-2 text-right text-ink-400">
+                          {value(row.redraft[0], 0)}
+                          <span className="ml-1 text-ink-600">#{row.rank[0]}</span>
+                        </td>
+                        <td className="num px-3 py-2 text-right text-ink-300">
+                          {value(row.redraft[1], 0)}
+                          <span className="ml-1 text-ink-600">#{row.rank[1]}</span>
+                        </td>
+                        <td className="num px-3 py-2 text-right font-semibold text-ink-100">
+                          {value(row.redraft[2], 0)}
+                          <span className="ml-1 text-ink-600">#{row.rank[2]}</span>
+                        </td>
+                        <td
+                          className={`num px-3 py-2 text-right ${
+                            row.change[2] > 0.05
+                              ? 'text-later-400'
+                              : row.change[2] < -0.05
+                                ? 'text-now-400'
+                                : 'text-ink-400'
+                          }`}
+                        >
+                          {signed(row.change[2], 0)}
+                        </td>
+                        <td className="num py-2 pr-4 text-right sm:pr-5">
+                          {move === 0 ? (
+                            <span className="text-ink-500">held</span>
+                          ) : (
+                            <span className={move > 0 ? 'text-good-500' : 'text-bad-500'}>
+                              {move > 0 ? '▲' : '▼'} {Math.abs(move)}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+          <p className="border-t border-white/[0.06] px-4 py-3 text-[0.75rem] leading-relaxed text-ink-400 sm:px-5">
+            {percent(realisedFraction(1), 0)} of a player's rating-to-redraft gap arrives in the
+            first year and {percent(realisedFraction(2), 0)} within two, a retention of{' '}
+            <span className="num">{GAP_RETENTION.toFixed(2)}</span> measured across the players who
+            carry an age on both boards. Picks join the column in the season they are drafted.
+            This is the value each team holds TODAY, carried forward — not a forecast of the trades
+            and waiver claims that will happen in between, which is exactly the part nobody can
+            project.
+          </p>
+        </Panel>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel>
           <PanelHeader
@@ -228,14 +372,18 @@ export function MatrixView() {
         <Panel>
           <PanelHeader
             title="Lineup strength and projected scoring"
-            subtitle="Optimal starting lineup value, and the weekly scoring mean it implies. A bench acquisition moves neither, which is why it moves nothing in the matrix."
+            subtitle={`Starters in full, plus the first line of backups at ${percent(
+              STARTER_MISS_RATE,
+              0,
+            )} — the share of weeks a starting slot needs covering. The second backup at a position only plays when both are out, so depth past the first body is worth almost nothing and is not counted.`}
           />
           <div className="overflow-x-auto">
             <table className="w-full min-w-[26rem] text-[0.8125rem]">
               <thead className="text-[0.6875rem] uppercase tracking-[0.08em] text-ink-400">
                 <tr className="border-b border-white/[0.06]">
                   <th className="py-2 pl-4 text-left font-medium sm:pl-5">Team</th>
-                  <th className="px-3 py-2 text-right font-medium">Lineup</th>
+                  <th className="px-3 py-2 text-right font-medium">Starters</th>
+                  <th className="px-3 py-2 text-right font-medium">Depth</th>
                   <th className="px-3 py-2 text-right font-medium">Points/wk</th>
                   <th className="py-2 pr-4 text-right font-medium sm:pr-5">Proj. finish</th>
                 </tr>
@@ -254,7 +402,10 @@ export function MatrixView() {
                         {row.name}
                       </td>
                       <td className="num px-3 py-2 text-right text-now-400">
-                        {value(row.strength, 0)}
+                        {value(row.starting, 0)}
+                      </td>
+                      <td className="num px-3 py-2 text-right text-ink-400">
+                        +{value(row.depth, 1)}
                       </td>
                       <td className="num px-3 py-2 text-right text-ink-300">
                         {value(row.points, 1)}

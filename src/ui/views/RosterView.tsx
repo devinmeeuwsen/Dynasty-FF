@@ -20,10 +20,13 @@ import { TIMELINE_LABEL, deltaClass, ordinal, percent, signed, value, timelineCl
 /**
  * Roster efficiency: the marginal value of every player you own.
  *
- * Marginal value is what the optimal starting total loses if the player is
- * removed. A player who cannot crack the lineup has a marginal value of exactly
- * zero, which is how buried surplus surfaces: high blended value, zero marginal
- * contribution, therefore a trade asset rather than a contributor.
+ * Marginal value is what this team's strength loses if the player is removed —
+ * the starting lineup and the first line of backups together, because a
+ * starter misses weeks and the player who covers for him is worth the share of
+ * the season he plays. A third receiver behind two starters still measures
+ * exactly zero, which is how buried surplus surfaces: real long term value, no
+ * contribution to this season, therefore a trade asset rather than a
+ * contributor.
  */
 export function RosterView() {
   const rosters = useStore((s) => s.rosters);
@@ -62,7 +65,7 @@ export function RosterView() {
   // Buried surplus: real long term value sitting on a bench, contributing
   // nothing to this season.
   const buried = bench
-    .filter((e) => e.player.assetValue > 0 && e.marginalWinNow === 0)
+    .filter((e) => e.player.assetValue > 0 && e.marginalWinNow < 1e-9)
     .sort((a, b) => b.player.assetValue - a.player.assetValue)
     .slice(0, 5);
 
@@ -100,7 +103,7 @@ export function RosterView() {
           </Stat>
         </Panel>
         <Panel className="p-4">
-          <Stat label="Buried surplus" hint="Bench players with long term value and zero marginal win now">
+          <Stat label="Buried surplus" hint="Long term value behind a starter AND a backup, contributing nothing this season">
             {buried.length}
           </Stat>
         </Panel>
@@ -131,7 +134,7 @@ export function RosterView() {
       <Panel className="overflow-hidden animate-rise">
         <PanelHeader
           title="Marginal value of every player you own"
-          subtitle="How much the optimal starting total drops if this player disappears — zero means he cannot crack the lineup, which is correct rather than a rounding artefact. Sort by VAR to find the roster spots free agency would improve: anything negative is worse than a player nobody in the league has claimed."
+          subtitle="How much this team's strength drops if the player disappears. A starter loses his whole value; the first backup at a slot loses the share of weeks he would have covered; anyone behind him is exactly zero, which is correct rather than a rounding artefact. Sort by VAR to find the roster spots free agency would improve: anything negative is worse than a player nobody in the league has claimed."
         />
         <div className="overflow-x-auto">
           <table className="w-full min-w-[38rem] text-[0.8125rem]">
@@ -178,10 +181,12 @@ export function RosterView() {
                       className={`rounded-md px-2 py-0.5 text-[0.625rem] uppercase tracking-wide ${
                         entry.starting
                           ? 'bg-now-500/15 text-now-400'
-                          : 'bg-white/[0.06] text-ink-400'
+                          : entry.backup
+                            ? 'bg-later-500/15 text-later-400'
+                            : 'bg-white/[0.06] text-ink-400'
                       }`}
                     >
-                      {entry.starting ? 'starter' : 'bench'}
+                      {entry.starting ? 'starter' : entry.backup ? 'backup' : 'bench'}
                     </span>
                   </td>
                   <td className="px-3 py-2.5 text-right">

@@ -9,6 +9,7 @@ import type { RankToValue } from './rank';
 import type { PickBoard } from './pickValues';
 import type { ReplacementLevels } from './types';
 import { optimizeLineup, startingSlots, type LineupPlayer } from './lineup';
+import { benchDepth, teamStrength, type DepthResult } from './depth';
 import {
   simulateSeason,
   payoutByTeam,
@@ -61,7 +62,12 @@ export interface Scenario {
   result: SeasonResult;
   payouts: Map<number, number>;
   championship: Map<number, number>;
+  /** Starting lineup plus the slice of the bench that actually plays. */
   strengths: Map<number, number>;
+  /** The starting lineup on its own, so the split stays inspectable. */
+  startingStrength: Map<number, number>;
+  /** What each team's first line of backups is worth. */
+  depthByTeam: Map<number, DepthResult>;
   starters: Map<number, string[]>;
   longTermByTeam: Map<number, number>;
   winNowByTeam: Map<number, number>;
@@ -85,15 +91,22 @@ function lineupPlayers(
 export function evaluateScenario(input: ScenarioInput): Scenario {
   const rosterIds = input.rosters.map((r) => r.rosterId);
   const strengths = new Map<number, number>();
+  const startingStrength = new Map<number, number>();
+  const depthByTeam = new Map<number, DepthResult>();
   const starters = new Map<number, string[]>();
   const longTermByTeam = new Map<number, number>();
   const winNowByTeam = new Map<number, number>();
 
   for (const roster of input.rosters) {
     const players = lineupPlayers(roster, input.values);
-    const lineup = optimizeLineup(players, input.shape.starters);
-    strengths.set(roster.rosterId, lineup.total);
-    starters.set(roster.rosterId, lineup.starterIds);
+    // Depth is part of strength, not a footnote to it: a starter misses weeks,
+    // and the bench player who covers for him is the difference between losing
+    // his value and losing the gap between him and his backup.
+    const strength = teamStrength(players, input.shape.starters);
+    strengths.set(roster.rosterId, strength.total);
+    startingStrength.set(roster.rosterId, strength.starting);
+    depthByTeam.set(roster.rosterId, strength.depth);
+    starters.set(roster.rosterId, strength.starterIds);
 
     let lt = 0;
     let wn = 0;
@@ -141,6 +154,8 @@ export function evaluateScenario(input: ScenarioInput): Scenario {
     payouts: payoutByTeam(result.finish, input.settings.payoutWeights),
     championship: championshipOdds(result.finish),
     strengths,
+    startingStrength,
+    depthByTeam,
     starters,
     longTermByTeam,
     winNowByTeam,
@@ -152,9 +167,16 @@ export function evaluateScenario(input: ScenarioInput): Scenario {
 /** The roster efficiency view: marginal value of every player a team owns. */
 export interface RosterEfficiencyEntry {
   player: ValuedPlayer;
-  /** How much the optimal starting total drops if this player is removed. */
+  /**
+   * How much this team's strength drops if the player is removed — the
+   * starting lineup and the backup line together. A bench player is no longer
+   * automatically zero here: the best backup at a position covers the weeks
+   * its starter misses, and losing him costs that.
+   */
   marginalWinNow: number;
   starting: boolean;
+  /** True when he is nobody's starter but somebody's first backup. */
+  backup: boolean;
 }
 
 export function rosterEfficiency(
@@ -164,12 +186,14 @@ export function rosterEfficiency(
 ): RosterEfficiencyEntry[] {
   const players = lineupPlayers(roster, values);
   const lineup = optimizeLineup(players, shape.starters);
-  const base = lineup.total;
+  const depth = benchDepth(players, shape.starters, lineup.starterIds);
+  const base = lineup.total + depth.total;
   const startingSet = new Set(lineup.starterIds);
+  const backupSet = new Set(depth.entries.map((e) => e.playerId));
 
   return players
     .map((p) => {
-      const without = optimizeLineup(
+      const without = teamStrength(
         players.filter((x) => x.id !== p.id),
         shape.starters,
       ).total;
@@ -178,6 +202,7 @@ export function rosterEfficiency(
         player: value,
         marginalWinNow: base - without,
         starting: startingSet.has(p.id),
+        backup: backupSet.has(p.id),
       };
     })
     .sort((a, b) => b.marginalWinNow - a.marginalWinNow || b.player.assetValue - a.player.assetValue);

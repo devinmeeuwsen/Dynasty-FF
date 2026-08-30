@@ -201,7 +201,7 @@ console.log('crash errors: NONE');
 const navBtns = (await page.locator('aside button').allInnerTexts()).map(t=>t.trim()).filter(Boolean);
 console.log('NAV:', navBtns.join(' | '));
 console.log('\nSLIDER:', (await page.locator('.panel').first().innerText()).replace(/\s+/g,' ').slice(0,340));
-for (const [tab, file] of [['Players','pr-players'],['Matrix','pr-matrix'],['Trade','pr-trade'],['Capital','pr-capital'],['Roster','pr-roster']]) {
+for (const [tab, file] of [['Players','pr-players'],['League','pr-league'],['Trade','pr-trade'],['Capital','pr-capital'],['Roster','pr-roster']]) {
   const btn = page.locator('aside button', { hasText: new RegExp('^'+tab, 'i') }).first();
   if (!(await btn.count())) { errs.push(`nav button missing: ${tab}`); continue; }
   await btn.click(); await page.waitForTimeout(2500);
@@ -265,9 +265,73 @@ if ((await addButtons.count()) === 0) {
   }
 }
 
-await page.locator('aside button', { hasText: /^Matrix/i }).first().click();
+// Auto-evaluation. There is no Evaluate button any more, so the only proof
+// the calculator still works is putting an asset on each side and watching the
+// result appear by itself.
+{
+  await page.locator('aside button', { hasText: /^Trade/i }).first().click();
+  await page.waitForTimeout(1500);
+  const panels = page.locator('main section.panel');
+  // The contention slider above them is a div, not a section, so the two side
+  // builders are the first two panel sections in the view.
+  const sideA = panels.nth(0);
+  const sideB = panels.nth(1);
+  // The earlier block left side A on its Picks tab, and this view has not
+  // remounted since. Put both sides back on Players explicitly.
+  for (const side of [sideA, sideB]) {
+    const tab = side.locator('button', { hasText: /^Players \(/ }).first();
+    if (await tab.count()) {
+      await tab.click();
+      await page.waitForTimeout(300);
+    }
+  }
+  // The earlier block already put a player on side A; start from empty so the
+  // one-sided assertion below means what it says.
+  const clear = page.locator('main button', { hasText: /^Clear$/ }).first();
+  if ((await clear.count()) && (await clear.isEnabled())) {
+    await clear.click();
+    await page.waitForTimeout(300);
+  }
+  const addA = sideA.locator('table tbody tr button', { hasText: /^(Add|In)$/ }).first();
+  const addB = sideB.locator('table tbody tr button', { hasText: /^(Add|In)$/ }).first();
+  if (!(await addA.count()) || !(await addB.count())) {
+    const shapes = await panels.evaluateAll((els) =>
+      els.map((e) => (e.innerText || '').replace(/\s+/g, ' ').slice(0, 60)),
+    );
+    errs.push(
+      `trade builder: could not find an Add button on both sides (panels: ${JSON.stringify(shapes)})`,
+    );
+  } else {
+    await addA.click();
+    await page.waitForTimeout(400);
+    const body = await page.locator('main').innerText();
+    if (/What each side gains/i.test(body)) {
+      errs.push('trade evaluated with only one side filled');
+    }
+    await addB.click();
+    // The season re-runs twice in a worker; give it room without a fixed sleep
+    // being the thing under test.
+    await page
+      .locator('main', { hasText: 'What each side gains' })
+      .first()
+      .waitFor({ timeout: 15000 })
+      .catch(() => {});
+    await page.waitForTimeout(2500);
+    const after = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+    for (const want of ['What each side gains', 'team strength', 'Championship probability']) {
+      if (!after.includes(want)) {
+        errs.push(`trade auto-evaluate: "${want}" never appeared`);
+      }
+    }
+    const scale = after.match(/What each side gains.{0,320}/);
+    console.log('  auto-evaluated:', scale ? scale[0] : '(missing)');
+    await page.screenshot({ path: path.join(OUT, 'trade-scale.png'), fullPage: true });
+  }
+}
+
+await page.locator('aside button', { hasText: /^League/i }).first().click();
 await page.waitForTimeout(2000);
-await page.screenshot({ path: path.join(OUT, 'matrix-full.png'), fullPage: true });
+await page.screenshot({ path: path.join(OUT, 'league-full.png'), fullPage: true });
 
 await b.close();
 server.close();

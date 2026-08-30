@@ -4,7 +4,7 @@ import { relativeTime } from './format';
 
 const NAV: { id: Screen; label: string; icon: ReactNode; syncedOnly?: boolean }[] = [
   { id: 'players', label: 'Players', icon: <IconPlayers /> },
-  { id: 'matrix', label: 'Matrix', icon: <IconMatrix />, syncedOnly: true },
+  { id: 'matrix', label: 'League', icon: <IconMatrix />, syncedOnly: true },
   { id: 'trade', label: 'Trade', icon: <IconTrade />, syncedOnly: true },
   { id: 'capital', label: 'Capital', icon: <IconPick />, syncedOnly: true },
   { id: 'roster', label: 'Roster', icon: <IconRoster />, syncedOnly: true },

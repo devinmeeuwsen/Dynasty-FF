@@ -358,3 +358,123 @@ embedded in the allowed page server side, so no disallowed endpoint is touched.
 Fetched at build time only. **I could not read their Terms of Use**, which is a
 JavaScript-rendered page this environment cannot execute, so that check remains
 outstanding and is the one thing worth confirming before this sees real traffic.
+
+## Depth belongs in team strength, and only the first backup does
+
+Before this change a team's strength was its optimal starting lineup and
+nothing else, which meant a team with the league's best bench and a team with
+an empty one projected identically, and acquiring a backup quarterback moved a
+championship probability by exactly zero.
+
+The fix is not a fudge factor on the bench. A starter misses weeks — one bye in
+fourteen, plus roughly an eighth of the rest to injury — and when he does, the
+slot is filled by the best eligible bench player rather than by a waiver claim,
+so the team keeps that player's value above replacement instead of losing all
+of it. Depth is therefore worth exactly the probability that it gets used:
+
+    depth = P(starting slot needs covering) × best eligible backup's value
+
+with the probability set at 0.2. That single expression also decides how far
+down the bench to count, which is the part worth stating plainly. The second
+backup at a position only plays when the starter AND the first backup are both
+out, which is q² ≈ 4% — inside the noise of everything else in the model. Depth
+past the first body is not a rounding error being ignored; it is genuinely
+close to worthless, which is why a fourth running back does nothing for a team
+and a second quarterback does.
+
+One backup per SLOT CLASS, not per position. A lineup of QB / RB / RB / WR / WR
+/ WR / TE / FLEX yields five backup slots — QB, RB, WR, TE, FLEX — because the
+two running back slots are already covered by one body for the same reason the
+second backup does not matter. Assigning those backups is the same problem as
+assigning starters, so it runs through the same matroid-greedy optimizer: a
+team is never credited for a backup arrangement it could not actually field.
+
+The waiver wire still contributes nothing, at either line, because a free agent
+has a value above replacement of exactly zero by construction.
+
+## A freed roster spot is worth zero, and the cut on the other side is not
+
+The intuition that a two-for-one frees a seat and a free seat can hold a free
+agent is right about the shape and wrong about the sign. Every value in this
+application is measured above replacement, and replacement level IS the best
+free agent at that position, so the player who fills the empty seat is worth
+exactly zero. There is no honest way to book value there, and inventing one
+would double count against the replacement level that every other number is
+already measured against.
+
+The cost of NOT having a seat is entirely real, and it was the half that was
+missing. A team at its roster limit that receives more bodies than it sends has
+to release somebody it chose to roster over the wire, and the cheapest legal
+cut is charged against it — in this season's strength and in long term value
+both. So the two-for-one asymmetry the intuition is pointing at does get
+priced. It is just booked against the side consolidating rather than credited
+to the side that ends up with the empty seat, which is where it belongs.
+
+Overage a league already has is never charged. Sleeper counts injured reserve
+and taxi players in the same list as everyone else, so a legal roster can read
+as over the limit; only bodies the trade itself adds beyond a team's headroom
+are ever cut.
+
+## Projecting redraft value forward, at a measured rate
+
+Long term value is a player's dynasty rating minus his redraft value: what the
+market pays him for his career, less what this season alone is worth. That gap
+is a forecast, so it can be run forward:
+
+    projectedRedraft(n) = redraft + (1 − RETENTION^n) × longTerm
+
+A balanced player has no gap and does not move. A future asset's redraft value
+rises. A win now player's falls. That is exactly what the three timeline labels
+already promise, made quantitative.
+
+RETENTION is measured rather than chosen. Across the 389 players carrying an
+age on both boards, the mean gap among future leaning players falls from 7.78
+at age 22 to 2.58 at age 27; the geometric mean of the year over year ratios
+across that range is 0.80. So a fifth of the gap arrives in a year and about
+36% within two.
+
+Two limits, stated because they both point the same way. The measurement is
+cross sectional — different players at different ages, not the same player
+tracked forward — so it is attenuated by survivorship: the 22 year olds who
+bust leave the board rather than reappearing at 23 with a closed gap. And the
+same rate is applied to the declining branch, where the cross section cannot
+separate a genuinely widening gap from that survivorship running in reverse.
+Both errors understate movement, so the projection is conservative.
+
+Picks join a team's projected column in the season they are drafted, on the
+same clock as everyone else. Their contribution is scaled rather than clamped,
+which is the one approximation in the module.
+
+What this is NOT is a forecast of the league. It is the value each team holds
+today, carried forward — the trades and waiver claims that will happen in
+between are exactly the part nobody can project, and pretending otherwise would
+be the least honest number in the application.
+
+## The trade scale has two readings and no verdict
+
+KeepTradeCut's calculator puts one bar across the middle and tips it toward
+whoever won. That question does not survive contact with dynasty: a contender
+buying this season and a rebuilder selling it are not competing for the same
+thing, and a deal can be genuinely good for both. Collapsing that into a winner
+would destroy the premise of the product.
+
+So there are two bars, one per team, each measuring that team's gain against
+its own goals — weighted by the posture the simulation infers for THAT team,
+not by the user's own slider. Both bars being green is a real and common
+outcome rather than a bug in the scale. The weight per side stays draggable,
+because a manager can know something the model does not, and dragging one side
+never moves the other.
+
+The two components blend honestly because they are already in the same units:
+this season's team strength and long term value are both value above
+replacement. The blend is a quantity, not an index.
+
+## The trade evaluates itself
+
+There is no Evaluate button because there is no question it would answer. The
+proposal on screen is the one the user wants priced, and a button only ever
+lets the result below disagree with the builder above it. The run is debounced
+so building a three player side simulates the season once rather than three
+times, and the store carries a sequence number so a reply that arrives after a
+newer edit is dropped rather than repainting the panel with numbers for a trade
+that no longer exists.
