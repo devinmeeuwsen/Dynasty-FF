@@ -556,3 +556,35 @@ so building a three player side simulates the season once rather than three
 times, and the store carries a sequence number so a reply that arrives after a
 newer edit is dropped rather than repainting the panel with numbers for a trade
 that no longer exists.
+
+
+## A column that carries a source's name carries that source's value
+
+The Players table labelled a column "Rating", hinted it as "KeepTradeCut's
+dynasty value on a 0-100 scale", and then rendered
+`blendedRating(player, contentionWeight)` into it. The contention slider was
+being multiplied into a number attributed to somebody else.
+
+It was not a rounding difference. At a weight of 0.55 it lifted CeeDee Lamb
+from his real 74.6 to 80.2 and moved him from fourteenth on the board to
+seventh; it pushed Puka Nacua up seven points and pulled Brock Bowers down
+seven. Because the column was also the default sort key, the whole board
+reordered itself according to a setting, while claiming to show a market
+everyone can check independently.
+
+The bug survived because it is invisible at the far-left stop of the slider,
+where the blend equals the rating exactly. Anyone verifying it on a full
+rebuild team would have seen the right numbers.
+
+Rating is now the player's rating, VAR is that rating's value above
+replacement, and the blend is its own column that says what it is — the only
+column the timeline moves. An audit against a live KeepTradeCut fetch confirms
+the boards themselves were never wrong: dynasty one-quarterback and superflex
+both match to a mean absolute difference of 0.08 across 463 players, the tight
+end premium variants match to 0.2, and the rookie pick tiers match to a tenth.
+
+Two other things fell out of the same read. The sort had `case 'longTerm'`
+twice, so ordering by Long term silently ordered by rating. And the browser
+smoke now asserts the board is monotonically descending in the Rating column,
+because both of these were display bugs that every unit test passed straight
+through.

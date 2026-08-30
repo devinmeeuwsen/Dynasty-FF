@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import type { Position, ValuedPlayer } from '../../engine/types';
 import { POSITIONS } from '../../engine/types';
-import { blendedRating, blendedVar } from '../../engine/values';
+import { blendedRating } from '../../engine/values';
 import { Bar, PositionChip, TextInput, Toggle } from './primitives';
 import { TIMELINE_LABEL, deltaClass, signed, timelineClass, timelineOf, value } from '../format';
 
 export type SortKey =
   | 'rating'
+  | 'blended'
   | 'var'
   | 'winNow'
   | 'longTerm'
@@ -60,6 +61,12 @@ const COLUMNS: { key: SortKey; label: string; hint?: string; className: string }
     hint: 'Value above replacement: rating minus the best player at this position nobody has rostered. Negative means the waiver wire already offers better.',
     className: 'text-ink-200',
   },
+  {
+    key: 'blended',
+    label: 'Blended',
+    hint: 'Rating and redraft mixed by the contention timeline. The only column the slider moves — everything else states a source value unchanged.',
+    className: 'text-ink-300',
+  },
 ];
 
 export function PlayerTable({
@@ -103,10 +110,18 @@ export function PlayerTable({
       return true;
     });
 
+    // Rating is KeepTradeCut's number and nothing else. It used to be
+    // `blendedRating(p, weight)`, which meant the contention slider silently
+    // rewrote a column labelled with someone else's data and reordered the
+    // whole board: at a weight of 0.55 it lifted CeeDee Lamb from 74.6 to 80.2
+    // and moved him from 14th to 7th. A column carrying a source's name has to
+    // carry that source's value. The blend is still available, as its own
+    // column that says what it is.
     const keyed = filtered.map((p) => ({
       player: p,
-      rating: blendedRating(p, weight),
-      vor: blendedVar(p, weight),
+      rating: p.rating,
+      vor: p.ratingVar,
+      blended: blendedRating(p, weight),
     }));
     keyed.sort((a, b) => {
       const direction = sort.desc ? -1 : 1;
@@ -125,9 +140,9 @@ export function PlayerTable({
         case 'winNow':
           return direction * (a.player.redraft - b.player.redraft);
         case 'longTerm':
-          return direction * (a.player.rating - b.player.rating);
-        case 'longTerm':
           return direction * (a.player.longTerm - b.player.longTerm);
+        case 'blended':
+          return direction * (a.blended - b.blended);
         case 'rating':
         default:
           return direction * (a.rating - b.rating);
@@ -294,6 +309,12 @@ export function PlayerTable({
                             className={`num py-2 pr-3 text-right ${deltaClass(row.vor, 0.05)}`}
                           >
                             {signed(row.vor)}
+                          </td>
+                        );
+                      case 'blended':
+                        return (
+                          <td key={column.key} className="num py-2 pr-3 text-right text-ink-300">
+                            {value(row.blended)}
                           </td>
                         );
                       default:

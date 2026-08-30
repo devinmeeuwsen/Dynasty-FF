@@ -355,6 +355,34 @@ if ((await addButtons.count()) === 0) {
   }
 }
 
+// The Rating column carries KeepTradeCut's name, so it has to carry their
+// number. It was showing the contention blend, which moved players around the
+// board by several places depending on a slider.
+{
+  await page.locator('aside button', { hasText: /^Players/i }).first().click();
+  await page.waitForTimeout(1500);
+  const rows = await page.locator('main table tbody tr').evaluateAll((trs) =>
+    trs.slice(0, 12).map((tr) => {
+      const c = [...tr.querySelectorAll('td')].map((td) => td.innerText.replace(/\s+/g, ' ').trim());
+      return c.join(' | ');
+    }),
+  );
+  console.log('  players board (top rows):');
+  for (const r of rows.slice(0, 6)) console.log('    ' + r.slice(0, 110));
+  // Descending by Rating: each row's rating must be <= the one above it.
+  const nums = rows
+    .map((r) => r.split('|').map((x) => x.trim()))
+    .map((c) => parseFloat(c[3]))
+    .filter((n) => !Number.isNaN(n));
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] > nums[i - 1] + 0.05) {
+      errs.push(`players board is not sorted by rating: ${nums[i - 1]} then ${nums[i]}`);
+      break;
+    }
+  }
+  console.log(`    ratings descending across ${nums.length} rows: ${nums.join(' ')}`);
+}
+
 await page.locator('aside button', { hasText: /^League/i }).first().click();
 await page.waitForTimeout(2000);
 await page.screenshot({ path: path.join(OUT, 'league-full.png'), fullPage: true });
