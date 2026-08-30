@@ -598,3 +598,50 @@ twice, so ordering by Long term silently ordered by rating. And the browser
 smoke now asserts the board is monotonically descending in the Rating column,
 because both of these were display bugs that every unit test passed straight
 through.
+
+
+## Whose team the app opens on
+
+Every view resolves "your team" from `userRosterId`, which `selectLeague` sets
+by looking the signed-in user up in the league's owner map. On a reload that
+came back null, because hydration restored the persisted USERNAME and then went
+straight to `selectLeague`, which reads the user OBJECT — still null, since
+nothing had looked the name up yet.
+
+So after any refresh the roster page opened on somebody else's team, the
+contention timeline read somebody else's championship odds, and draft capital
+listed somebody else's picks. It only looked right in the session where the
+league was first connected, which is exactly the session in which it would be
+tested.
+
+Sleeper's user id is now persisted alongside the username, and `selectLeague`
+resolves identity from the live user or that id, whichever it has. Shared links
+deliberately carry a null id: whoever opens one looks up their own name, and
+until they do no roster is marked as theirs — far better than telling a visitor
+that somebody else's team is.
+
+The capital page gained the team dropdown the roster page already had, so
+another team's picks can be inspected without the page having to guess.
+
+## The quadrant labels were on the wrong halves
+
+The scatter plots long term value on x and win now on y, which makes the
+off-diagonal corners read backwards from the natural phrasing: high on the long
+term axis with nothing this season is a REBUILDING asset, and the opposite
+corner is a win now one. The two labels were swapped, so every player in the
+high-win-now corner was filed under rebuilding and vice versa. The browser
+smoke now asserts the win now label sits left of the rebuilding one.
+
+## The positional curve shows a floor, not two verticals
+
+It carried vertical markers for the observed and simulated replacement levels.
+They sat close together often enough that the labels overlapped into an
+unreadable smear, and a vertical line answers "how many players deep is
+replacement" when the question the curve is asking is "how far above free is
+this player". A horizontal line at the wire answers that one: everything above
+it is worth owning, the gap down to it is the player's value, and the curve
+flattening into the line is the moment depth stops mattering at that position.
+
+The observed-against-simulated comparison did not disappear; it lives in the
+table below the chart, which is a better place for two numbers that want to be
+read against each other precisely.

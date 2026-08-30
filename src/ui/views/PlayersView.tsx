@@ -204,7 +204,7 @@ function CurvesPanel() {
       <Panel>
         <PanelHeader
           title="Positional value curve"
-          subtitle="Both replacement levels are marked. Where they diverge, the league is rostering deeper or shallower than its settings imply — which is real information about this specific league."
+          subtitle="The waiver wire is drawn as a floor. Everything above the line is worth owning at this position, and the gap down to it is what a player is actually worth — which is why the curve flattening into the line is the moment depth stops mattering. The table below carries the observed against simulated comparison."
           right={
             <div className="flex flex-wrap gap-2">
               <Toggle

@@ -9,6 +9,20 @@ import { DEFAULT_SETTINGS } from '../engine/types';
 
 export interface Persisted {
   username: string;
+  /**
+   * Sleeper's id for the signed-in user, which is what resolves WHICH roster
+   * is theirs.
+   *
+   * Persisting the username alone was not enough. On reload the store restored
+   * the name and went straight to `selectLeague`, which resolves the user's
+   * roster from the `user` OBJECT — still null, because nothing had looked the
+   * name up yet. So `userRosterId` came back null and every view fell through
+   * to `rosters[0]`: the roster page opened on somebody else's team, the
+   * contention timeline read somebody else's odds, and draft capital showed
+   * somebody else's picks. It only looked right in the session where the
+   * league was first connected.
+   */
+  userId: string | null;
   leagueId: string | null;
   settings: EngineSettings;
   nameOverrides: Record<string, string>;
