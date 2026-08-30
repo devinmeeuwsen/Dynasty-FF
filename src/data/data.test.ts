@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { matchRankings, normalizeName } from './names';
 import { parseRankingText, listFromText } from './rankings/parse';
-import { bundledPickBoard, bundledRankingSet, bundledPlayerPool } from './rankings/bundled';
+import {
+  TAIL_WINDOW,
+  bundledPickBoard,
+  bundledRankingSet,
+  bundledPlayerPool,
+  tailRatio,
+} from './rankings/bundled';
 import { assemblePlayers } from './assemble';
 import { rankingFormatFor, tePremiumFor, toRankingFormat } from './rankings/types';
 import { pickSeasons, toLeagueShape } from './league';
@@ -184,6 +190,40 @@ describe('bundled snapshot', () => {
         // KeepTradeCut's mflids are also valid Sleeper ids for other players.
         expect(list!.entries.every((e) => e.sleeperId === undefined)).toBe(true);
       }
+    }
+  });
+
+  it('reads the deep tail slope off a window, not off the last two entries', () => {
+    // The bottom of a crowdsourced board is its noisiest region. A single
+    // adjacent pair once set this slope, and the day the dynasty superflex
+    // board ended 4.70, 1.20 the implied ratio fell to the 0.9 floor and the
+    // published redraft board handed seven players a rating of zero. The
+    // window is what makes one player unable to do that.
+    const smooth = Array.from({ length: 200 }, (_, i) => 100 * Math.pow(0.98, i));
+    expect(tailRatio(smooth)).toBeCloseTo(0.98, 3);
+
+    const cliff = [...smooth];
+    cliff[cliff.length - 1] = cliff[cliff.length - 2] * 0.25;
+    // One bad final entry moves the windowed slope by a fraction of a percent.
+    expect(Math.abs(tailRatio(cliff) - tailRatio(smooth))).toBeLessThan(0.06);
+    // Whereas the pair it replaced would have read 0.25 and been floored at 0.9.
+    expect(cliff[cliff.length - 1] / cliff[cliff.length - 2]).toBeCloseTo(0.25, 6);
+
+    // Always a decay, never growth or a collapse, whatever the input.
+    for (const ladder of [smooth, cliff, [50], [50, 50], [1, 100]]) {
+      const r = tailRatio(ladder);
+      expect(r).toBeGreaterThanOrEqual(0.9);
+      expect(r).toBeLessThanOrEqual(0.999);
+    }
+    expect(TAIL_WINDOW).toBeGreaterThan(1);
+  });
+
+  it('never lets the tail decay a rating to zero, however deep the list runs', () => {
+    // The invariant the zero-rating outage violated, stated on the published
+    // boards rather than on the arithmetic behind them.
+    for (const list of set.lists) {
+      const deepest = list.entries[list.entries.length - 1];
+      expect(deepest.rating, `${list.horizon}/${list.format}`).toBeGreaterThan(0);
     }
   });
 

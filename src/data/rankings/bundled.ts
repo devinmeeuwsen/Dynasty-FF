@@ -114,6 +114,40 @@ function shoulderedLadder(values: number[]): number[] {
   });
 }
 
+/**
+ * How far back to measure the ladder's final slope, and the floor every
+ * published rating is held above.
+ *
+ * The window exists because the bottom of a crowdsourced board is its noisiest
+ * region. An earlier version read the slope off the last two entries alone,
+ * which held while those happened to be near-identical and then broke the day
+ * they were not: the dynasty superflex board ended 4.70, 1.20, the implied
+ * ratio fell from 0.999 to the 0.9 floor, and FantasyPros' superflex list runs
+ * fifty-nine ranks past the end of that ladder — enough for 4.6 x 0.9^59 to
+ * round to 0.0 and hand seven players a rating of zero. A slope averaged over
+ * twenty-five entries cannot be moved that far by one player.
+ *
+ * The floor is the belt to that braces. A rating of 0.0 is not "nearly
+ * worthless" to anything downstream; it is indistinguishable from absent, and
+ * a board should never publish one whatever the arithmetic upstream does.
+ */
+export const TAIL_WINDOW = 25;
+const MIN_RATING = 0.1;
+
+/**
+ * Past the end of the ladder, continue its slope geometrically rather than
+ * dropping to zero — a deep player is cheap, not worthless.
+ */
+export function tailRatio(ladder: number[]): number {
+  const n = ladder.length;
+  if (n < 2) return 0.98;
+  const span = Math.min(TAIL_WINDOW, n - 1);
+  const from = ladder[n - 1 - span];
+  const to = ladder[n - 1];
+  if (!(from > 0) || !(to > 0)) return 0.98;
+  return Math.min(0.999, Math.max(0.9, Math.pow(to / from, 1 / span)));
+}
+
 function redraftBoard(qb: QbFormat, te: TePremium): [string, number][] | null {
   const source = data.redraft?.[qb];
   const scaleBoard = data.boards[`dynasty.${qb}`];
@@ -121,20 +155,14 @@ function redraftBoard(qb: QbFormat, te: TePremium): [string, number][] | null {
 
   const ladder = shoulderedLadder(scaleBoard.map(([, rating]) => rating));
   const lift = te === 'base' ? 1 : (data.teLift?.[`redraft.${qb}.${te}`] ?? 1);
-
-  // Past the end of the ladder, continue its final step geometrically rather
-  // than dropping to zero — a deep player is cheap, not worthless.
-  const tailRatio =
-    ladder.length > 1
-      ? Math.min(0.999, Math.max(0.9, ladder[ladder.length - 1] / ladder[ladder.length - 2]))
-      : 0.98;
+  const ratio = tailRatio(ladder);
 
   return source.ranks
     .map(([key, rank]) => {
       const raw =
         rank <= ladder.length
           ? ladder[rank - 1]
-          : ladder[ladder.length - 1] * Math.pow(tailRatio, rank - ladder.length);
+          : ladder[ladder.length - 1] * Math.pow(ratio, rank - ladder.length);
       const rating = data.players[key]?.[1] === 'TE' ? raw * lift : raw;
       return [key, Math.round(rating * 10) / 10] as [string, number];
     })
@@ -164,7 +192,9 @@ function toBoard(
         team,
         age,
         rank: index + 1,
-        rating,
+        // Held above zero here rather than per board, so no list can ever
+        // publish a rating that reads as missing data.
+        rating: Math.max(MIN_RATING, rating),
       };
     }),
   };
