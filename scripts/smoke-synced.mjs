@@ -420,6 +420,20 @@ if ((await addButtons.count()) === 0) {
     await page.screenshot({ path: path.join(OUT, 'quadrants.png') });
   }
 
+  // The wire-depth diagnostic answers "is the wire picked clean" with the
+  // league's own numbers, which is the evidence for the open-seat setting.
+  await page.locator('main button', { hasText: /^Free agents$/ }).first().click();
+  await page.waitForTimeout(900);
+  // Stat labels are uppercased in CSS, so innerText returns them transformed.
+  const wire = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  const wireFlat = wire.toLowerCase();
+  for (const want of ['how picked over is this wire', 'free inside the top', 'rostered below the wire']) {
+    if (!wireFlat.includes(want)) errs.push(`wire depth: "${want}" never appeared`);
+  }
+  const m = wire.match(/FREE INSIDE THE TOP.{0,220}/i);
+  console.log('  wire depth:', m ? m[0] : '(missing)');
+  await page.screenshot({ path: path.join(OUT, 'wire-depth.png') });
+
   // The positional curve: no vertical replacement markers, one horizontal wire.
   await page.locator('main button', { hasText: /^Curves$/ }).first().click();
   await page.waitForTimeout(800);

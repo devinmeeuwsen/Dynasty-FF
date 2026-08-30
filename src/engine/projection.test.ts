@@ -7,6 +7,7 @@ import {
   realisedFraction,
 } from './projection';
 import { rosterSpotEffect, rosterCapacity } from './rosterSpots';
+import { wireDepth } from './wire';
 import { horizonValue, horizonWeights, playerUsage, readUsage } from './usage';
 import { buildHarness } from './harness';
 import { evaluateScenario } from './scenario';
@@ -304,5 +305,72 @@ describe('what a player is worth to the team that holds him', () => {
       expect(u.surplus).toBeGreaterThanOrEqual(0);
       expect(u.used).toBeCloseTo(playerUsage(roster, shape, p.id, H), 9);
     }
+  });
+});
+
+describe('how picked over the wire is', () => {
+  it('counts unrostered players who outrank somebody rostered', () => {
+    const { shape, rosters, values } = buildHarness();
+    const all = [...values.values()];
+    const depth = wireDepth(all, shape, rosters.length);
+
+    expect(depth.slots).toBe(rosters.length * rosterCapacity(shape));
+    expect(depth.rostered + depth.free).toBe(all.length);
+    // Every player it reports as free really is unrostered, and really does
+    // rank inside the league's total roster capacity.
+    const ranked = [...all].sort((a, b) => b.rating - a.rating).slice(0, depth.slots);
+    const inTop = new Set(ranked.map((p) => p.id));
+    for (const p of depth.insideTopSlots) {
+      expect(p.ownerRosterId).toBeNull();
+      expect(inTop.has(p.id)).toBe(true);
+    }
+  });
+
+  it('flags a rostered player only when a free agent at his own position beats him', () => {
+    const { shape, rosters, values } = buildHarness();
+    const all = [...values.values()];
+    const depth = wireDepth(all, shape, rosters.length);
+
+    const bestFree = new Map<string, number>();
+    for (const p of all) {
+      if (p.ownerRosterId != null) continue;
+      const cur = bestFree.get(p.position);
+      if (cur == null || p.rating > cur) bestFree.set(p.position, p.rating);
+    }
+    for (const entry of depth.belowWire) {
+      expect(entry.player.ownerRosterId).not.toBeNull();
+      const best = bestFree.get(entry.player.position) as number;
+      expect(best).toBeGreaterThan(entry.player.rating);
+      expect(entry.deficit).toBeCloseTo(best - entry.player.rating, 9);
+    }
+    // Sorted worst-first, so the biggest mistake in the league reads first.
+    for (let i = 1; i < depth.belowWire.length; i++) {
+      expect(depth.belowWire[i - 1].deficit).toBeGreaterThanOrEqual(depth.belowWire[i].deficit);
+    }
+  });
+
+  it('measures the drop from the best free agent to the fifth, never below zero', () => {
+    const { shape, rosters, values } = buildHarness();
+    const depth = wireDepth([...values.values()], shape, rosters.length);
+    for (const d of depth.byPosition) {
+      expect(d.dropOff).toBeGreaterThanOrEqual(0);
+      if (d.best && d.fifth) {
+        expect(d.best.rating).toBeGreaterThanOrEqual(d.fifth.rating);
+      }
+    }
+  });
+
+  it('reports a picked-clean wire as picked clean', () => {
+    // A league that rosters the top players in order leaves nothing behind.
+    const { shape, rosters, values } = buildHarness();
+    const all = [...values.values()].sort((a, b) => b.rating - a.rating);
+    const slots = rosters.length * rosterCapacity(shape);
+    const perfect = all.map((p, i) => ({
+      ...p,
+      ownerRosterId: i < slots ? (i % rosters.length) + 1 : null,
+    }));
+    const depth = wireDepth(perfect, shape, rosters.length);
+    expect(depth.insideTopSlots).toHaveLength(0);
+    expect(depth.belowWire).toHaveLength(0);
   });
 });

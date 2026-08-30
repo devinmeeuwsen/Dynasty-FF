@@ -645,3 +645,36 @@ flattening into the line is the moment depth stops mattering at that position.
 The observed-against-simulated comparison did not disappear; it lives in the
 table below the chart, which is a better place for two numbers that want to be
 read against each other precisely.
+
+
+## Replacement level is a definition, and the wire is not picked clean
+
+Replacement level is DEFINED as the best unrostered player at each position,
+which pins his value above replacement at exactly zero. That definition is what
+makes every other number in the application mean something and it stays. But it
+is a definition, not a finding, and it quietly implies something usually false:
+that the wire has been picked clean.
+
+Ten teams at twenty-three spots roster 230 players, and managers do not fill
+those 230 seats with the 230 best players. They hold injured starters,
+prospects two years away, and names they are attached to. So players who would
+rank inside the top 230 sit free.
+
+Measured on a realistic league: ten unrostered players ranked inside the top
+192 roster slots, and twenty-three of the 192 rostered players were already
+beaten by a free agent at their own position. That is real slack, and it is the
+evidence behind the open roster spot setting rather than an argument for
+changing what value above replacement measures.
+
+The diagnostic reports it and moves nothing. A manager can see how picked over
+their own league is — including the drop from the best free agent at each
+position to the fifth, because a shallow drop means several usable bodies are
+sitting there rather than one, which is what makes a second and third open seat
+worth holding — and set the open roster spot accordingly.
+
+Worth stating plainly, because it took a few passes to get straight: a rich
+wire does NOT make an empty seat directly more valuable in the static sense. A
+seat is transient — it gets filled immediately, and a roster is the same size
+either way — and the player who fills it is worth zero above replacement by
+construction. What a rich wire changes is the QUALITY of each draw, which is
+option value, which is exactly the quantity the setting controls.
