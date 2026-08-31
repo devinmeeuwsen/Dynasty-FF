@@ -70,6 +70,11 @@ interface State {
   // Connection
   username: string;
   user: SleeperUser | null;
+  /**
+   * Sleeper's user id, kept separately from `user` so it survives a reload.
+   * `selectLeague` resolves the user's own roster from this.
+   */
+  userId: string | null;
   season: string;
   leagues: SleeperLeagueSummary[];
   league: LeagueSnapshot | null;
@@ -159,6 +164,7 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   username: '',
   user: null,
+  userId: null,
   season: String(new Date().getFullYear()),
   leagues: [],
   league: null,
@@ -210,6 +216,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       const leagues = await getLeagues(user.user_id, season);
       set({
         user,
+        userId: user.user_id,
         season,
         leagues: leagues.filter((l) => l.sport === 'nfl'),
         connecting: false,
@@ -235,8 +242,12 @@ export const useStore = create<State & Actions>((set, get) => ({
         getPlayers(),
       ]);
       const pool = playerPool(players);
-      const userRosterId = get().user
-        ? (snapshot.ownerToRoster.get(get().user!.user_id) ?? null)
+      // From the persisted id when the page has just been reloaded, from the
+      // freshly looked-up user otherwise. Either way this is what decides
+      // whose team every view opens on.
+      const identity = get().user?.user_id ?? get().userId;
+      const userRosterId = identity
+        ? (snapshot.ownerToRoster.get(identity) ?? null)
         : null;
 
       set({
@@ -466,6 +477,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (!persisted) return;
     set({
       username: persisted.username ?? '',
+      userId: persisted.userId ?? null,
       settings: { ...DEFAULT_SETTINGS, ...persisted.settings },
       nameOverrides: new Map(Object.entries(persisted.nameOverrides ?? {})),
       contentionOverride: persisted.contentionOverride ?? null,
@@ -484,6 +496,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       league: null,
       leagues: [],
       user: null,
+      userId: null,
       userRosterId: null,
       rosters: [],
       picks: [],
@@ -539,6 +552,7 @@ function persistNow(state: State) {
   persistTimer = setTimeout(() => {
     const payload: Persisted = {
       username: state.username,
+      userId: state.user?.user_id ?? state.userId,
       leagueId: state.league?.leagueId ?? null,
       settings: state.settings,
       nameOverrides: Object.fromEntries(state.nameOverrides),

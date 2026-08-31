@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { pickKey } from '../../engine/picks';
 import { partnerInsights } from '../../engine/partners';
 import { useStore } from '../../state/store';
 import { useTeamName } from '../useTeamName';
 import { SlotDistribution, TeamBars } from '../components/charts';
-import { Callout, EmptyState, Panel, PanelHeader, Stat } from '../components/primitives';
+import { Callout, EmptyState, Panel, PanelHeader, Select, Stat } from '../components/primitives';
 import { ordinal, percent, value } from '../format';
 
 /**
@@ -22,6 +22,7 @@ export function CapitalView() {
   const rosters = useStore((s) => s.rosters);
   const teamName = useTeamName();
   const league = useStore((s) => s.league);
+  const [selected, setSelected] = useState<number | null>(null);
 
   const partners = useMemo(() => {
     if (!scenario || userRosterId == null) return [];
@@ -46,7 +47,8 @@ export function CapitalView() {
     );
   }
 
-  const viewRosterId = userRosterId ?? rosters[0].rosterId;
+  // Your own team unless you pick another, the same rule the roster page uses.
+  const viewRosterId = selected ?? userRosterId ?? rosters[0].rosterId;
   const held = picks
     .filter((p) => p.ownerRosterId === viewRosterId)
     .sort((a, b) => a.season - b.season || a.round - b.round);
@@ -57,16 +59,33 @@ export function CapitalView() {
 
   return (
     <div className="space-y-4">
+      {rosters.length > 1 ? (
+        <div className="max-w-xs">
+          <Select
+            value={String(viewRosterId)}
+            onChange={(v) => setSelected(Number(v))}
+            options={rosters.map((r) => ({
+              value: String(r.rosterId),
+              label: teamName(r.rosterId) + (r.rosterId === userRosterId ? ' (you)' : ''),
+            }))}
+          />
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-3">
         <Panel className="p-4">
-          <Stat label="Your draft capital" tone="later" hint={`${held.length} picks across ${league ? 2 : 0} classes`}>
+          <Stat
+            label={viewRosterId === userRosterId ? 'Your draft capital' : 'Their draft capital'}
+            tone="later"
+            hint={`${held.length} picks across ${league ? 2 : 0} classes`}
+          >
             {value(total, 1)}
           </Stat>
         </Panel>
         <Panel className="p-4">
           <Stat
             label="From other teams"
-            hint="These move in the opposite direction from your own picks when you improve"
+            hint="These move in the opposite direction from a team's own picks when it improves"
           >
             {fromOthers.length}
           </Stat>

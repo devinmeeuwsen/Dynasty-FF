@@ -3,11 +3,12 @@ import type { Position } from '../../engine/types';
 import { POSITIONS } from '../../engine/types';
 import { blendedValue } from '../../engine/values';
 import { useStore } from '../../state/store';
+import { wireDepth } from '../../engine/wire';
 import { useTeamName } from '../useTeamName';
 import { ContentionSlider } from '../components/ContentionSlider';
 import { PlayerTable } from '../components/PlayerTable';
 import { PositionalCurveChart, PositionTabs, ValueScatter } from '../components/charts';
-import { Callout, EmptyState, Panel, PanelHeader, Toggle } from '../components/primitives';
+import { Callout, EmptyState, Panel, PanelHeader, Stat, Toggle } from '../components/primitives';
 import { value } from '../format';
 
 type Tab = 'table' | 'scatter' | 'curves' | 'free';
@@ -131,6 +132,8 @@ function legendVar(position: Position): string {
 function FreeAgentPanel() {
   const pipeline = useStore((s) => s.pipeline)!;
   const mode = useStore((s) => s.mode);
+  const shape = useStore((s) => s.shape);
+  const rosters = useStore((s) => s.rosters);
   const teamName = useTeamName();
 
   if (mode !== 'synced') {
@@ -146,6 +149,7 @@ function FreeAgentPanel() {
 
   const free = pipeline.players.filter((p) => p.ownerRosterId == null);
   const bestRaw = [...free].sort((a, b) => b.redraft - a.redraft).slice(0, 4);
+  const depth = wireDepth(pipeline.players, shape, rosters.length || shape.teams);
 
   return (
     <div className="space-y-4 animate-rise">
@@ -155,6 +159,83 @@ function FreeAgentPanel() {
         unrostered player at each position, so the four below sit at zero by construction and
         anyone worse than them goes negative.
       </Callout>
+
+      <Panel className="overflow-hidden">
+        <PanelHeader
+          title="How picked over is this wire"
+          subtitle="Replacement level being zero is a definition, not a finding. It quietly implies the wire is picked clean, and leagues rarely are — managers hold injured starters, prospects two years out, and names they are attached to. This is how much room yours is leaving."
+        />
+        <div className="grid gap-px bg-white/[0.05] sm:grid-cols-3">
+          <div className="bg-ink-900/60 p-4">
+            <Stat
+              label="Free inside the top"
+              tone={depth.insideTopSlots.length > 0 ? 'later' : 'neutral'}
+              hint={`${depth.slots} roster slots exist across the league, and this many unrostered players would rank inside them`}
+            >
+              {depth.insideTopSlots.length}
+            </Stat>
+          </div>
+          <div className="bg-ink-900/60 p-4">
+            <Stat
+              label="Rostered below the wire"
+              tone={depth.belowWire.length > 0 ? 'now' : 'neutral'}
+              hint={`of ${depth.rostered} rostered — a free agent at their own position already beats them`}
+            >
+              {depth.belowWire.length}
+            </Stat>
+          </div>
+          <div className="bg-ink-900/60 p-4">
+            <Stat
+              label="Unrostered"
+              hint="The pool an open roster spot draws from"
+            >
+              {depth.free}
+            </Stat>
+          </div>
+        </div>
+
+        {depth.insideTopSlots.length > 0 ? (
+          <div className="border-t border-white/[0.06] px-4 py-3 sm:px-5">
+            <div className="text-[0.6875rem] font-medium uppercase tracking-[0.09em] text-ink-400">
+              Best of them
+            </div>
+            <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+              {depth.insideTopSlots.slice(0, 8).map((p) => (
+                <li key={p.id} className="num text-[0.8125rem] text-ink-200">
+                  {p.name}{' '}
+                  <span className="text-ink-500">
+                    {p.position} · {value(p.rating)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="border-t border-white/[0.06] px-4 py-3 sm:px-5">
+          <div className="text-[0.6875rem] font-medium uppercase tracking-[0.09em] text-ink-400">
+            How far the wire runs
+          </div>
+          <div className="num mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-[0.75rem] text-ink-400">
+            {depth.byPosition.map((d) => (
+              <span key={d.position}>
+                {d.position}{' '}
+                <span className="text-ink-200">{value(d.best?.rating ?? 0)}</span>
+                {' → '}
+                <span className="text-ink-300">{value(d.fifth?.rating ?? 0)}</span>
+                <span className="text-ink-600"> by the 5th</span>
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 max-w-prose text-[0.75rem] leading-relaxed text-ink-500">
+            A shallow drop from the best free agent to the fifth means several usable bodies are
+            sitting there rather than one, which is what makes a second and third open roster spot
+            worth holding. None of this moves a value in the model — value above replacement stays
+            measured against the best free agent, which is what makes it mean anything. It is the
+            evidence for how high to set the open roster spot in settings.
+          </p>
+        </div>
+      </Panel>
 
       <Panel className="overflow-hidden">
         <PanelHeader
@@ -204,7 +285,7 @@ function CurvesPanel() {
       <Panel>
         <PanelHeader
           title="Positional value curve"
-          subtitle="Both replacement levels are marked. Where they diverge, the league is rostering deeper or shallower than its settings imply — which is real information about this specific league."
+          subtitle="The waiver wire is drawn as a floor. Everything above the line is worth owning at this position, and the gap down to it is what a player is actually worth — which is why the curve flattening into the line is the moment depth stops mattering. The table below carries the observed against simulated comparison."
           right={
             <div className="flex flex-wrap gap-2">
               <Toggle

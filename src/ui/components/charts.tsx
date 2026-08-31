@@ -11,10 +11,16 @@ import { POSITION_COLOR, percent, value } from '../format';
  * palette and typography are smaller and read as one product.
  */
 
+/**
+ * `x` is long term value and `y` is win now, so the off-diagonal corners are
+ * the reverse of what reads naturally: high on the long term axis with nothing
+ * this season is a REBUILDING asset, and the opposite corner is a win now one.
+ * The two were swapped, which put every label on the wrong half of the chart.
+ */
 const QUADRANTS = [
   { x: 0.5, y: 0.5, label: 'Cornerstones', hint: 'high on both' },
-  { x: 0.5, y: 0, label: 'Win now assets', hint: 'sell to rebuilders' },
-  { x: 0, y: 0.5, label: 'Rebuilding assets', hint: 'buy from contenders' },
+  { x: 0.5, y: 0, label: 'Rebuilding assets', hint: 'buy from contenders' },
+  { x: 0, y: 0.5, label: 'Win now assets', hint: 'sell to rebuilders' },
   { x: 0, y: 0, label: 'Cuts', hint: 'low on both' },
 ];
 
@@ -138,9 +144,14 @@ export function ValueScatter({
 }
 
 /**
- * Positional value curves with both replacement levels marked. Divergence
- * between observed and simulated is the point of the chart: it says whether
- * this league rosters deeper or shallower than its settings imply.
+ * Positional value curves with the waiver wire drawn as a floor.
+ *
+ * It used to carry two vertical markers, for the observed and simulated
+ * replacement levels. They sat close together often enough that their labels
+ * overlapped into an unreadable smear, and a vertical line answers "how many
+ * players deep" when the question the curve is actually asking is "how far
+ * above free is he". A horizontal floor answers that one: everything above the
+ * line is worth owning, and the gap to it is the player's value.
  */
 export function PositionalCurveChart({
   curves,
@@ -157,11 +168,11 @@ export function PositionalCurveChart({
   const W = 100;
   const H = 46;
 
+  // The wire is the observed replacement where a real league supplies one, and
+  // the modelled level otherwise — the same precedence the value pipeline uses.
   const row = comparison?.find((c) => c.position === position);
-  const indexOfValue = (target: number) => {
-    const index = list.findIndex((entry) => entry.value <= target + 1e-9);
-    return index < 0 ? shown.length - 1 : Math.min(index, shown.length - 1);
-  };
+  const wire = row ? (row.observedPlayerId != null ? row.observed : row.simulated) : null;
+  const wireY = wire != null ? H - (Math.max(0, wire) / maxValue) * H : null;
 
   const path = shown
     .map((entry, i) => {
@@ -183,23 +194,26 @@ export function PositionalCurveChart({
       <path d={`${path} L${W},${H} L0,${H} Z`} fill={`url(#fill-${position})`} />
       <path d={path} fill="none" stroke={POSITION_COLOR[position]} strokeWidth={0.8} />
 
-      {row ? (
+      {wireY != null && wireY > 1 && wireY < H - 1 ? (
         <>
-          <ReplacementMarker
-            x={(indexOfValue(row.simulated) / Math.max(1, shown.length - 1)) * W}
-            height={H}
-            color="rgba(255,255,255,0.3)"
-            dash="1.5 1.5"
-            label="simulated"
-            labelAnchor="end"
+          <line
+            x1={0}
+            y1={wireY}
+            x2={W}
+            y2={wireY}
+            stroke="var(--color-blend-400)"
+            strokeWidth={0.4}
+            strokeDasharray="2 1.5"
           />
-          <ReplacementMarker
-            x={(indexOfValue(row.observed) / Math.max(1, shown.length - 1)) * W}
-            height={H}
-            color="var(--color-blend-400)"
-            label="observed"
-            labelAnchor="start"
-          />
+          <text
+            x={W}
+            y={wireY - 1.4}
+            textAnchor="end"
+            className="fill-blend-400"
+            style={{ fontSize: 3 }}
+          >
+            waiver wire
+          </text>
         </>
       ) : null}
 
@@ -214,44 +228,6 @@ export function PositionalCurveChart({
   );
 }
 
-function ReplacementMarker({
-  x,
-  height,
-  color,
-  dash,
-  label,
-  labelAnchor,
-}: {
-  x: number;
-  height: number;
-  color: string;
-  dash?: string;
-  label: string;
-  labelAnchor: 'start' | 'end';
-}) {
-  return (
-    <g>
-      <line
-        x1={x}
-        y1={0}
-        x2={x}
-        y2={height}
-        stroke={color}
-        strokeWidth={0.5}
-        strokeDasharray={dash}
-      />
-      <text
-        x={labelAnchor === 'start' ? x + 1 : x - 1}
-        y={3}
-        textAnchor={labelAnchor}
-        fill={color}
-        style={{ fontSize: 2.8, fontWeight: 600 }}
-      >
-        {label}
-      </text>
-    </g>
-  );
-}
 
 /** A team's draft slot distribution, drawn as a small column chart. */
 export function SlotDistribution({

@@ -72,6 +72,10 @@ export function SettingsView() {
   const share = () => {
     const url = shareUrl({
       username,
+      // Never the sharer's id. Whoever opens the link looks up their own name,
+      // and until they do no roster in the league is marked as theirs — far
+      // better than telling them somebody else's team is.
+      userId: null,
       leagueId: league?.leagueId ?? null,
       settings,
       nameOverrides: {},

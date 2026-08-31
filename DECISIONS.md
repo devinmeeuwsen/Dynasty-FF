@@ -598,3 +598,83 @@ twice, so ordering by Long term silently ordered by rating. And the browser
 smoke now asserts the board is monotonically descending in the Rating column,
 because both of these were display bugs that every unit test passed straight
 through.
+
+
+## Whose team the app opens on
+
+Every view resolves "your team" from `userRosterId`, which `selectLeague` sets
+by looking the signed-in user up in the league's owner map. On a reload that
+came back null, because hydration restored the persisted USERNAME and then went
+straight to `selectLeague`, which reads the user OBJECT — still null, since
+nothing had looked the name up yet.
+
+So after any refresh the roster page opened on somebody else's team, the
+contention timeline read somebody else's championship odds, and draft capital
+listed somebody else's picks. It only looked right in the session where the
+league was first connected, which is exactly the session in which it would be
+tested.
+
+Sleeper's user id is now persisted alongside the username, and `selectLeague`
+resolves identity from the live user or that id, whichever it has. Shared links
+deliberately carry a null id: whoever opens one looks up their own name, and
+until they do no roster is marked as theirs — far better than telling a visitor
+that somebody else's team is.
+
+The capital page gained the team dropdown the roster page already had, so
+another team's picks can be inspected without the page having to guess.
+
+## The quadrant labels were on the wrong halves
+
+The scatter plots long term value on x and win now on y, which makes the
+off-diagonal corners read backwards from the natural phrasing: high on the long
+term axis with nothing this season is a REBUILDING asset, and the opposite
+corner is a win now one. The two labels were swapped, so every player in the
+high-win-now corner was filed under rebuilding and vice versa. The browser
+smoke now asserts the win now label sits left of the rebuilding one.
+
+## The positional curve shows a floor, not two verticals
+
+It carried vertical markers for the observed and simulated replacement levels.
+They sat close together often enough that the labels overlapped into an
+unreadable smear, and a vertical line answers "how many players deep is
+replacement" when the question the curve is asking is "how far above free is
+this player". A horizontal line at the wire answers that one: everything above
+it is worth owning, the gap down to it is the player's value, and the curve
+flattening into the line is the moment depth stops mattering at that position.
+
+The observed-against-simulated comparison did not disappear; it lives in the
+table below the chart, which is a better place for two numbers that want to be
+read against each other precisely.
+
+
+## Replacement level is a definition, and the wire is not picked clean
+
+Replacement level is DEFINED as the best unrostered player at each position,
+which pins his value above replacement at exactly zero. That definition is what
+makes every other number in the application mean something and it stays. But it
+is a definition, not a finding, and it quietly implies something usually false:
+that the wire has been picked clean.
+
+Ten teams at twenty-three spots roster 230 players, and managers do not fill
+those 230 seats with the 230 best players. They hold injured starters,
+prospects two years away, and names they are attached to. So players who would
+rank inside the top 230 sit free.
+
+Measured on a realistic league: ten unrostered players ranked inside the top
+192 roster slots, and twenty-three of the 192 rostered players were already
+beaten by a free agent at their own position. That is real slack, and it is the
+evidence behind the open roster spot setting rather than an argument for
+changing what value above replacement measures.
+
+The diagnostic reports it and moves nothing. A manager can see how picked over
+their own league is — including the drop from the best free agent at each
+position to the fifth, because a shallow drop means several usable bodies are
+sitting there rather than one, which is what makes a second and third open seat
+worth holding — and set the open roster spot accordingly.
+
+Worth stating plainly, because it took a few passes to get straight: a rich
+wire does NOT make an empty seat directly more valuable in the static sense. A
+seat is transient — it gets filled immediately, and a roster is the same size
+either way — and the player who fills it is worth zero above replacement by
+construction. What a rich wire changes is the QUALITY of each draw, which is
+option value, which is exactly the quantity the setting controls.

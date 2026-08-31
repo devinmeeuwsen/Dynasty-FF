@@ -387,6 +387,82 @@ if ((await addButtons.count()) === 0) {
   }
 }
 
+// The scatter's off-diagonal quadrants were labelled backwards, putting
+// "rebuilding" on the high-win-now corner. x is long term, y is win now.
+{
+  // Both charts live behind their own tabs on the Players view.
+  await page.locator('aside button', { hasText: /^Players/i }).first().click();
+  await page.waitForTimeout(800);
+  await page.locator('main button', { hasText: /^Quadrants$/ }).first().click();
+  await page.waitForTimeout(800);
+  const svg = page.locator('main svg[aria-label*="Win now value"]').first();
+  if (!(await svg.count())) {
+    errs.push('scatter: quadrant chart never rendered');
+  } else {
+    const labels = await svg.locator('text').evaluateAll((ts) =>
+      ts
+        .filter((t) => /assets|cornerstones|cuts/i.test(t.textContent || ''))
+        .map((t) => ({ text: (t.textContent || '').trim(), x: +t.getAttribute('x') })),
+    );
+    const find = (re) => labels.find((l) => re.test(l.text));
+    const winNow = find(/win now/i);
+    const rebuild = find(/rebuilding/i);
+    if (!winNow || !rebuild) {
+      errs.push(`scatter: quadrant labels missing (${JSON.stringify(labels)})`);
+    } else if (!(winNow.x < rebuild.x)) {
+      errs.push(
+        `scatter: quadrants swapped — "win now" at x=${winNow.x} must sit LEFT of ` +
+          `"rebuilding" at x=${rebuild.x}, since x is the long term axis`,
+      );
+    } else {
+      console.log(`  quadrants: win now at x=${winNow.x}, rebuilding at x=${rebuild.x} — correct`);
+    }
+    await page.screenshot({ path: path.join(OUT, 'quadrants.png') });
+  }
+
+  // The wire-depth diagnostic answers "is the wire picked clean" with the
+  // league's own numbers, which is the evidence for the open-seat setting.
+  await page.locator('main button', { hasText: /^Free agents$/ }).first().click();
+  await page.waitForTimeout(900);
+  // Stat labels are uppercased in CSS, so innerText returns them transformed.
+  const wire = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  const wireFlat = wire.toLowerCase();
+  for (const want of ['how picked over is this wire', 'free inside the top', 'rostered below the wire']) {
+    if (!wireFlat.includes(want)) errs.push(`wire depth: "${want}" never appeared`);
+  }
+  const m = wire.match(/FREE INSIDE THE TOP.{0,220}/i);
+  console.log('  wire depth:', m ? m[0] : '(missing)');
+  await page.screenshot({ path: path.join(OUT, 'wire-depth.png') });
+
+  // The positional curve: no vertical replacement markers, one horizontal wire.
+  await page.locator('main button', { hasText: /^Curves$/ }).first().click();
+  await page.waitForTimeout(800);
+  const curve = page.locator('main svg[aria-label*="value curve"]').first();
+  if (await curve.count()) {
+    const svgText = await curve.locator('text').allTextContents();
+    const joined = svgText.join(' ').toLowerCase();
+    if (/observed|simulated/.test(joined)) {
+      errs.push(`curve: vertical replacement markers still drawn (${joined})`);
+    }
+    if (!joined.includes('waiver wire')) {
+      errs.push(`curve: no waiver wire floor drawn (${joined})`);
+    }
+    const lines = await curve.locator('line').evaluateAll((ls) =>
+      ls.map((l) => ({
+        vertical: l.getAttribute('x1') === l.getAttribute('x2'),
+        horizontal: l.getAttribute('y1') === l.getAttribute('y2'),
+      })),
+    );
+    if (lines.some((l) => l.vertical)) {
+      errs.push('curve: a vertical line remains');
+    }
+    console.log(`  curve labels: ${joined.slice(0, 80)}; lines: ${JSON.stringify(lines)}`);
+    await page.screenshot({ path: path.join(OUT, 'curves.png') });
+  } else {
+    errs.push('curve: no positional value curve rendered');
+  }
+}
+
 await page.locator('aside button', { hasText: /^League/i }).first().click();
 await page.waitForTimeout(2000);
 await page.screenshot({ path: path.join(OUT, 'league-full.png'), fullPage: true });
